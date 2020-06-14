@@ -1,4 +1,4 @@
-// Copyright (c) 2018 The Bitcoin Core developers
+// Copyright (c) 2018-2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -6,6 +6,8 @@
 #define BITCOIN_BLOCKFILTER_H
 
 #include <stdint.h>
+#include <string>
+#include <set>
 #include <unordered_set>
 #include <vector>
 
@@ -89,6 +91,18 @@ enum class BlockFilterType : uint8_t
     INVALID = 255,
 };
 
+/** Get the human-readable name for a filter type. Returns empty string for unknown types. */
+const std::string& BlockFilterTypeName(BlockFilterType filter_type);
+
+/** Find a filter type by its human-readable name. */
+bool BlockFilterTypeByName(const std::string& name, BlockFilterType& filter_type);
+
+/** Get a list of known filter types. */
+const std::set<BlockFilterType>& AllBlockFilterTypes();
+
+/** Get a comma-separated list of known filter type names. */
+const std::string& ListBlockFilterTypes();
+
 /**
  * Complete block filter struct as defined in BIP 157. Serialization matches
  * payload of "cfilter" messages.
@@ -130,8 +144,8 @@ public:
 
     template <typename Stream>
     void Serialize(Stream& s) const {
-        s << m_block_hash
-          << static_cast<uint8_t>(m_filter_type)
+        s << static_cast<uint8_t>(m_filter_type)
+          << m_block_hash
           << m_filter.GetEncoded();
     }
 
@@ -140,8 +154,8 @@ public:
         std::vector<unsigned char> encoded_filter;
         uint8_t filter_type;
 
-        s >> m_block_hash
-          >> filter_type
+        s >> filter_type
+          >> m_block_hash
           >> encoded_filter;
 
         m_filter_type = static_cast<BlockFilterType>(filter_type);

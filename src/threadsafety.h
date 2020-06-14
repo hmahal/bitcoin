@@ -1,10 +1,12 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2018 The Bitcoin Core developers
+// Copyright (c) 2009-2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_THREADSAFETY_H
 #define BITCOIN_THREADSAFETY_H
+
+#include <mutex>
 
 #ifdef __clang__
 // TL;DR Add GUARDED_BY(mutex) to member variables. The others are
@@ -54,15 +56,19 @@
 #define ASSERT_EXCLUSIVE_LOCK(...)
 #endif // __GNUC__
 
-// Utility class for indicating to compiler thread analysis that a mutex is
-// locked (when it couldn't be determined otherwise).
-struct SCOPED_LOCKABLE LockAnnotation
+// StdMutex provides an annotated version of std::mutex for us,
+// and should only be used when sync.h Mutex/LOCK/etc are not usable.
+class LOCKABLE StdMutex : public std::mutex
 {
-    template <typename Mutex>
-    explicit LockAnnotation(Mutex& mutex) EXCLUSIVE_LOCK_FUNCTION(mutex)
-    {
-    }
-    ~LockAnnotation() UNLOCK_FUNCTION() {}
+};
+
+// StdLockGuard provides an annotated version of std::lock_guard for us,
+// and should only be used when sync.h Mutex/LOCK/etc are not usable.
+class SCOPED_LOCKABLE StdLockGuard : public std::lock_guard<StdMutex>
+{
+public:
+    explicit StdLockGuard(StdMutex& cs) EXCLUSIVE_LOCK_FUNCTION(cs) : std::lock_guard<StdMutex>(cs) {}
+    ~StdLockGuard() UNLOCK_FUNCTION() {}
 };
 
 #endif // BITCOIN_THREADSAFETY_H

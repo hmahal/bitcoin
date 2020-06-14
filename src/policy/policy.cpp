@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2018 The Bitcoin Core developers
+// Copyright (c) 2009-2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -9,10 +9,6 @@
 
 #include <consensus/validation.h>
 #include <coins.h>
-#include <policy/settings.h>
-#include <tinyformat.h>
-#include <util/system.h>
-#include <util/strencodings.h>
 
 
 CAmount GetDustThreshold(const CTxOut& txout, const CFeeRate& dustRelayFeeIn)
@@ -59,7 +55,7 @@ bool IsStandard(const CScript& scriptPubKey, txnouttype& whichType)
     std::vector<std::vector<unsigned char> > vSolutions;
     whichType = Solver(scriptPubKey, vSolutions);
 
-    if (whichType == TX_NONSTANDARD || whichType == TX_WITNESS_UNKNOWN) {
+    if (whichType == TX_NONSTANDARD) {
         return false;
     } else if (whichType == TX_MULTISIG) {
         unsigned char m = vSolutions.front()[0];

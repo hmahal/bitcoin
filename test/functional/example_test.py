@@ -15,7 +15,7 @@ from collections import defaultdict
 
 # Avoid wildcard * imports
 from test_framework.blocktools import (create_block, create_coinbase)
-from test_framework.messages import CInv
+from test_framework.messages import CInv, MSG_BLOCK
 from test_framework.mininode import (
     P2PInterface,
     mininode_lock,
@@ -186,16 +186,19 @@ class ExampleTest(BitcoinTestFramework):
         self.log.info("Connect node2 and node1")
         connect_nodes(self.nodes[1], 2)
 
+        self.log.info("Wait for node2 to receive all the blocks from node1")
+        self.sync_all()
+
         self.log.info("Add P2P connection to node2")
         self.nodes[0].disconnect_p2ps()
 
         self.nodes[2].add_p2p_connection(BaseNode())
 
-        self.log.info("Wait for node2 reach current tip. Test that it has propagated all the blocks to us")
+        self.log.info("Test that node2 propagates all the blocks to us")
 
         getdata_request = msg_getdata()
         for block in blocks:
-            getdata_request.inv.append(CInv(2, block))
+            getdata_request.inv.append(CInv(MSG_BLOCK, block))
         self.nodes[2].p2p.send_message(getdata_request)
 
         # wait_until() will loop until a predicate condition is met. Use it to test properties of the

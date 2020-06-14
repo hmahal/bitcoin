@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2018 The Bitcoin Core developers
+// Copyright (c) 2009-2019 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -8,9 +8,8 @@
 #include <crypto/sha256.h>
 #include <pubkey.h>
 #include <script/script.h>
-#include <util/system.h>
-#include <util/strencodings.h>
 
+#include <string>
 
 typedef std::vector<unsigned char> valtype;
 
@@ -19,12 +18,16 @@ unsigned nMaxDatacarrierBytes = MAX_OP_RETURN_RELAY;
 
 CScriptID::CScriptID(const CScript& in) : uint160(Hash160(in.begin(), in.end())) {}
 
+ScriptHash::ScriptHash(const CScript& in) : uint160(Hash160(in.begin(), in.end())) {}
+
+PKHash::PKHash(const CPubKey& pubkey) : uint160(pubkey.GetID()) {}
+
 WitnessV0ScriptHash::WitnessV0ScriptHash(const CScript& in)
 {
     CSHA256().Write(in.data(), in.size()).Finalize(begin());
 }
 
-const char* GetTxnOutputType(txnouttype t)
+std::string GetTxnOutputType(txnouttype t)
 {
     switch (t)
     {
@@ -38,17 +41,17 @@ const char* GetTxnOutputType(txnouttype t)
     case TX_WITNESS_V0_SCRIPTHASH: return "witness_v0_scripthash";
     case TX_WITNESS_UNKNOWN: return "witness_unknown";
     }
-    return nullptr;
+    assert(false);
 }
 
 static bool MatchPayToPubkey(const CScript& script, valtype& pubkey)
 {
-    if (script.size() == CPubKey::PUBLIC_KEY_SIZE + 2 && script[0] == CPubKey::PUBLIC_KEY_SIZE && script.back() == OP_CHECKSIG) {
-        pubkey = valtype(script.begin() + 1, script.begin() + CPubKey::PUBLIC_KEY_SIZE + 1);
+    if (script.size() == CPubKey::SIZE + 2 && script[0] == CPubKey::SIZE && script.back() == OP_CHECKSIG) {
+        pubkey = valtype(script.begin() + 1, script.begin() + CPubKey::SIZE + 1);
         return CPubKey::ValidSize(pubkey);
     }
-    if (script.size() == CPubKey::COMPRESSED_PUBLIC_KEY_SIZE + 2 && script[0] == CPubKey::COMPRESSED_PUBLIC_KEY_SIZE && script.back() == OP_CHECKSIG) {
-        pubkey = valtype(script.begin() + 1, script.begin() + CPubKey::COMPRESSED_PUBLIC_KEY_SIZE + 1);
+    if (script.size() == CPubKey::COMPRESSED_SIZE + 2 && script[0] == CPubKey::COMPRESSED_SIZE && script.back() == OP_CHECKSIG) {
+        pubkey = valtype(script.begin() + 1, script.begin() + CPubKey::COMPRESSED_SIZE + 1);
         return CPubKey::ValidSize(pubkey);
     }
     return false;
@@ -162,17 +165,17 @@ bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet)
         if (!pubKey.IsValid())
             return false;
 
-        addressRet = pubKey.GetID();
+        addressRet = PKHash(pubKey);
         return true;
     }
     else if (whichType == TX_PUBKEYHASH)
     {
-        addressRet = CKeyID(uint160(vSolutions[0]));
+        addressRet = PKHash(uint160(vSolutions[0]));
         return true;
     }
     else if (whichType == TX_SCRIPTHASH)
     {
-        addressRet = CScriptID(uint160(vSolutions[0]));
+        addressRet = ScriptHash(uint160(vSolutions[0]));
         return true;
     } else if (whichType == TX_WITNESS_V0_KEYHASH) {
         WitnessV0KeyHash hash;
@@ -217,7 +220,7 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::
             if (!pubKey.IsValid())
                 continue;
 
-            CTxDestination address = pubKey.GetID();
+            CTxDestination address = PKHash(pubKey);
             addressRet.push_back(address);
         }
 
@@ -250,13 +253,13 @@ public:
         return false;
     }
 
-    bool operator()(const CKeyID &keyID) const {
+    bool operator()(const PKHash &keyID) const {
         script->clear();
         *script << OP_DUP << OP_HASH160 << ToByteVector(keyID) << OP_EQUALVERIFY << OP_CHECKSIG;
         return true;
     }
 
-    bool operator()(const CScriptID &scriptID) const {
+    bool operator()(const ScriptHash &scriptID) const {
         script->clear();
         *script << OP_HASH160 << ToByteVector(scriptID) << OP_EQUAL;
         return true;
