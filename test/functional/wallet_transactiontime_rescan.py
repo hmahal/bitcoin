@@ -11,11 +11,15 @@ from test_framework.blocktools import COINBASE_MATURITY
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_equal,
+    assert_raises_rpc_error,
     set_node_times,
 )
 
 
 class TransactionTimeRescanTest(BitcoinTestFramework):
+    def add_options(self, parser):
+        self.add_wallet_options(parser)
+
     def set_test_params(self):
         self.setup_clean_chain = False
         self.num_nodes = 3
@@ -156,6 +160,12 @@ class TransactionTimeRescanTest(BitcoinTestFramework):
             elif tx['address'] == wo3:
                 assert_equal(tx['blocktime'], cur_time + ten_days + ten_days + ten_days)
                 assert_equal(tx['time'], cur_time + ten_days + ten_days + ten_days)
+
+
+        self.log.info('Test handling of invalid parameters for rescanblockchain')
+        assert_raises_rpc_error(-8, "Invalid start_height", restorewo_wallet.rescanblockchain, -1, 10)
+        assert_raises_rpc_error(-8, "Invalid stop_height", restorewo_wallet.rescanblockchain, 1, -1)
+        assert_raises_rpc_error(-8, "stop_height must be greater than start_height", restorewo_wallet.rescanblockchain, 20, 10)
 
 
 if __name__ == '__main__':
