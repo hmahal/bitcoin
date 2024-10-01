@@ -1,14 +1,15 @@
 // Copyright (c) 2010 Satoshi Nakamoto
-// Copyright (c) 2012-2021 The Bitcoin Core developers
+// Copyright (c) 2012-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #ifndef BITCOIN_NODE_INTERFACE_UI_H
 #define BITCOIN_NODE_INTERFACE_UI_H
 
+#include <cstdint>
 #include <functional>
-#include <memory>
 #include <string>
+#include <vector>
 
 class CBlockIndex;
 enum class SynchronizationState;
@@ -116,7 +117,7 @@ void InitWarning(const bilingual_str& str);
 
 /** Show error message **/
 bool InitError(const bilingual_str& str);
-constexpr auto AbortError = InitError;
+bool InitError(const bilingual_str& str, const std::vector<std::string>& details);
 
 extern CClientUIInterface uiInterface;
 

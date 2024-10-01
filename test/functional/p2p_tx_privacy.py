@@ -53,7 +53,6 @@ class TxPrivacyTest(BitcoinTestFramework):
 
     def run_test(self):
         self.wallet = MiniWallet(self.nodes[0])
-        self.wallet.rescan_utxos()
 
         tx_originator = self.nodes[0].add_p2p_connection(P2PInterface())
         spy = self.nodes[0].add_p2p_connection(P2PTxSpy(), wait_for_verack=False)
@@ -75,4 +74,4 @@ class TxPrivacyTest(BitcoinTestFramework):
         spy.wait_for_inv_match(CInv(MSG_WTX, tx2.calc_sha256(True)))
 
 if __name__ == '__main__':
-    TxPrivacyTest().main()
+    TxPrivacyTest(__file__).main()

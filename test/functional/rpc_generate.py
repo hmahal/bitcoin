@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2020-2021 The Bitcoin Core developers
+# Copyright (c) 2020-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test generate* RPCs."""
@@ -28,10 +28,14 @@ class RPCGenerateTest(BitcoinTestFramework):
     def test_generateblock(self):
         node = self.nodes[0]
         miniwallet = MiniWallet(node)
-        miniwallet.rescan_utxos()
+
+        self.log.info('Mine an empty block to address and return the hex')
+        address = miniwallet.get_address()
+        generated_block = self.generateblock(node, output=address, transactions=[], submit=False)
+        node.submitblock(hexdata=generated_block['hex'])
+        assert_equal(generated_block['hash'], node.getbestblockhash())
 
         self.log.info('Generate an empty block to address')
-        address = miniwallet.get_address()
         hash = self.generateblock(node, output=address, transactions=[])['hash']
         block = node.getblock(blockhash=hash, verbose=2)
         assert_equal(len(block['tx']), 1)
@@ -83,7 +87,7 @@ class RPCGenerateTest(BitcoinTestFramework):
         txid1 = miniwallet.send_self_transfer(from_node=node)['txid']
         utxo1 = miniwallet.get_utxo(txid=txid1)
         rawtx2 = miniwallet.create_self_transfer(utxo_to_spend=utxo1)['hex']
-        assert_raises_rpc_error(-25, 'TestBlockValidity failed: bad-txns-inputs-missingorspent', self.generateblock, node, address, [rawtx2, txid1])
+        assert_raises_rpc_error(-25, 'testBlockValidity failed: bad-txns-inputs-missingorspent', self.generateblock, node, address, [rawtx2, txid1])
 
         self.log.info('Fail to generate block with txid not in mempool')
         missing_txid = '0000000000000000000000000000000000000000000000000000000000000000'
@@ -122,4 +126,4 @@ class RPCGenerateTest(BitcoinTestFramework):
 
 
 if __name__ == "__main__":
-    RPCGenerateTest().main()
+    RPCGenerateTest(__file__).main()

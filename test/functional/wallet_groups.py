@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2018-2021 The Bitcoin Core developers
+# Copyright (c) 2018-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test wallet group functionality."""
@@ -22,6 +22,8 @@ class WalletGroupTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 5
+        # whitelist peers to speed up tx relay / mempool sync
+        self.noban_tx_relay = True
         self.extra_args = [
             [],
             [],
@@ -31,7 +33,6 @@ class WalletGroupTest(BitcoinTestFramework):
         ]
 
         for args in self.extra_args:
-            args.append("-whitelist=noban@127.0.0.1")   # whitelist peers to speed up tx relay / mempool sync
             args.append(f"-paytxfee={20 * 1e3 / 1e8}")  # apply feerate of 20 sats/vB across all nodes
 
         self.rpc_timeout = 480
@@ -181,4 +182,4 @@ class WalletGroupTest(BitcoinTestFramework):
 
 
 if __name__ == '__main__':
-    WalletGroupTest().main()
+    WalletGroupTest(__file__).main()

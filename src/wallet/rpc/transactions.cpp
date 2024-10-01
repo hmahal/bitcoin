@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2021 The Bitcoin Core developers
+// Copyright (c) 2011-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -39,7 +39,11 @@ static void WalletTxToJSON(const CWallet& wallet, const CWalletTx& wtx, UniValue
     UniValue conflicts(UniValue::VARR);
     for (const uint256& conflict : wallet.GetTxConflicts(wtx))
         conflicts.push_back(conflict.GetHex());
-    entry.pushKV("walletconflicts", conflicts);
+    entry.pushKV("walletconflicts", std::move(conflicts));
+    UniValue mempool_conflicts(UniValue::VARR);
+    for (const Txid& mempool_conflict : wtx.mempool_conflicts)
+        mempool_conflicts.push_back(mempool_conflict.GetHex());
+    entry.pushKV("mempoolconflicts", std::move(mempool_conflicts));
     entry.pushKV("time", wtx.GetTxTime());
     entry.pushKV("timereceived", int64_t{wtx.nTimeReceived});
 
@@ -134,7 +138,7 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
     UniValue ret(UniValue::VARR);
     std::map<std::string, tallyitem> label_tally;
 
-    const auto& func = [&](const CTxDestination& address, const std::string& label, const std::string& purpose, bool is_change) {
+    const auto& func = [&](const CTxDestination& address, const std::string& label, bool is_change, const std::optional<AddressPurpose>& purpose) {
         if (is_change) return; // no change addresses
 
         auto it = mapTally.find(address);
@@ -168,14 +172,14 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
                     transactions.push_back(_item.GetHex());
                 }
             }
-            obj.pushKV("txids", transactions);
-            ret.push_back(obj);
+            obj.pushKV("txids", std::move(transactions));
+            ret.push_back(std::move(obj));
         }
     };
 
     if (filtered_address) {
         const auto& entry = wallet.FindAddressBookEntry(*filtered_address, /*allow_change=*/false);
-        if (entry) func(*filtered_address, entry->GetLabel(), entry->purpose, /*is_change=*/false);
+        if (entry) func(*filtered_address, entry->GetLabel(), entry->IsChange(), entry->purpose);
     } else {
         // No filtered addr, walk-through the addressbook entry
         wallet.ForEachAddrBookEntry(func);
@@ -191,7 +195,7 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
             obj.pushKV("amount",        ValueFromAmount(nAmount));
             obj.pushKV("confirmations", (nConf == std::numeric_limits<int>::max() ? 0 : nConf));
             obj.pushKV("label",         entry.first);
-            ret.push_back(obj);
+            ret.push_back(std::move(obj));
         }
     }
 
@@ -206,7 +210,7 @@ RPCHelpMan listreceivedbyaddress()
                     {"minconf", RPCArg::Type::NUM, RPCArg::Default{1}, "The minimum number of confirmations before payments are included."},
                     {"include_empty", RPCArg::Type::BOOL, RPCArg::Default{false}, "Whether to include addresses that haven't received any payments."},
                     {"include_watchonly", RPCArg::Type::BOOL, RPCArg::DefaultHint{"true for watch-only wallets, otherwise false"}, "Whether to include watch-only addresses (see 'importaddress')"},
-                    {"address_filter", RPCArg::Type::STR, RPCArg::Optional::OMITTED_NAMED_ARG, "If present and non-empty, only return information on this address."},
+                    {"address_filter", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "If present and non-empty, only return information on this address."},
                     {"include_immature_coinbase", RPCArg::Type::BOOL, RPCArg::Default{false}, "Include immature coinbase transactions."},
                 },
                 RPCResult{
@@ -349,7 +353,7 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
             if (fLong)
                 WalletTxToJSON(wallet, wtx, entry);
             entry.pushKV("abandoned", wtx.isAbandoned());
-            ret.push_back(entry);
+            ret.push_back(std::move(entry));
         }
     }
 
@@ -389,15 +393,16 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
                 entry.pushKV("label", label);
             }
             entry.pushKV("vout", r.vout);
+            entry.pushKV("abandoned", wtx.isAbandoned());
             if (fLong)
                 WalletTxToJSON(wallet, wtx, entry);
-            ret.push_back(entry);
+            ret.push_back(std::move(entry));
         }
     }
 }
 
 
-static const std::vector<RPCResult> TransactionDescriptionString()
+static std::vector<RPCResult> TransactionDescriptionString()
 {
     return{{RPCResult::Type::NUM, "confirmations", "The number of confirmations for the transaction. Negative confirmations means the\n"
                "transaction conflicted that many blocks ago."},
@@ -410,20 +415,23 @@ static const std::vector<RPCResult> TransactionDescriptionString()
            {RPCResult::Type::NUM_TIME, "blocktime", /*optional=*/true, "The block time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
            {RPCResult::Type::STR_HEX, "wtxid", "The hash of serialized transaction, including witness data."},
-           {RPCResult::Type::ARR, "walletconflicts", "Conflicting transaction ids.",
+           {RPCResult::Type::ARR, "walletconflicts", "Confirmed transactions that have been detected by the wallet to conflict with this transaction.",
            {
                {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
            }},
-           {RPCResult::Type::STR_HEX, "replaced_by_txid", /*optional=*/true, "The txid if this tx was replaced."},
-           {RPCResult::Type::STR_HEX, "replaces_txid", /*optional=*/true, "The txid if the tx replaces one."},
-           {RPCResult::Type::STR, "comment", /*optional=*/true, ""},
+           {RPCResult::Type::STR_HEX, "replaced_by_txid", /*optional=*/true, "Only if 'category' is 'send'. The txid if this tx was replaced."},
+           {RPCResult::Type::STR_HEX, "replaces_txid", /*optional=*/true, "Only if 'category' is 'send'. The txid if this tx replaces another."},
+           {RPCResult::Type::ARR, "mempoolconflicts", "Transactions in the mempool that directly conflict with either this transaction or an ancestor transaction",
+           {
+               {RPCResult::Type::STR_HEX, "txid", "The transaction id."},
+           }},
            {RPCResult::Type::STR, "to", /*optional=*/true, "If a comment to is associated with the transaction."},
            {RPCResult::Type::NUM_TIME, "time", "The transaction time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::NUM_TIME, "timereceived", "The time received expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::STR, "comment", /*optional=*/true, "If a comment is associated with the transaction, only present if not empty."},
            {RPCResult::Type::STR, "bip125-replaceable", "(\"yes|no|unknown\") Whether this transaction signals BIP125 replaceability or has an unconfirmed ancestor signaling BIP125 replaceability.\n"
                "May be unknown for unconfirmed transactions not in the mempool because their unconfirmed ancestors are unknown."},
-           {RPCResult::Type::ARR, "parent_descs", /*optional=*/true, "Only if 'category' is 'received'. List of parent descriptors for the scriptPubKey of this coin.", {
+           {RPCResult::Type::ARR, "parent_descs", /*optional=*/true, "Only if 'category' is 'received'. List of parent descriptors for the output script of this coin.", {
                {RPCResult::Type::STR, "desc", "The descriptor string."},
            }},
            };
@@ -435,7 +443,7 @@ RPCHelpMan listtransactions()
                 "\nIf a label name is provided, this will return only incoming transactions paying to addresses with the specified label.\n"
                 "\nReturns up to 'count' most recent transactions skipping the first 'from' transactions.\n",
                 {
-                    {"label|dummy", RPCArg::Type::STR, RPCArg::Optional::OMITTED_NAMED_ARG, "If set, should be a valid label name to return only incoming transactions\n"
+                    {"label|dummy", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "If set, should be a valid label name to return only incoming transactions\n"
                           "with the specified label, or \"*\" to disable filtering and return all transactions."},
                     {"count", RPCArg::Type::NUM, RPCArg::Default{10}, "The number of transactions to return"},
                     {"skip", RPCArg::Type::NUM, RPCArg::Default{0}, "The number of transactions to skip"},
@@ -463,8 +471,7 @@ RPCHelpMan listtransactions()
                         },
                         TransactionDescriptionString()),
                         {
-                            {RPCResult::Type::BOOL, "abandoned", /*optional=*/true, "'true' if the transaction has been abandoned (inputs are respendable). Only available for the \n"
-                                 "'send' category of transactions."},
+                            {RPCResult::Type::BOOL, "abandoned", "'true' if the transaction has been abandoned (inputs are respendable)."},
                         })},
                     }
                 },
@@ -487,7 +494,7 @@ RPCHelpMan listtransactions()
 
     std::optional<std::string> filter_label;
     if (!request.params[0].isNull() && request.params[0].get_str() != "*") {
-        filter_label = request.params[0].get_str();
+        filter_label.emplace(LabelFromValue(request.params[0]));
         if (filter_label.value().empty()) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Label argument must be a valid label name or \"*\".");
         }
@@ -546,13 +553,13 @@ RPCHelpMan listsinceblock()
                 "If \"blockhash\" is no longer a part of the main chain, transactions from the fork point onward are included.\n"
                 "Additionally, if include_removed is set, transactions affecting the wallet which were removed are returned in the \"removed\" array.\n",
                 {
-                    {"blockhash", RPCArg::Type::STR, RPCArg::Optional::OMITTED_NAMED_ARG, "If set, the block hash to list transactions since, otherwise list all transactions."},
+                    {"blockhash", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "If set, the block hash to list transactions since, otherwise list all transactions."},
                     {"target_confirmations", RPCArg::Type::NUM, RPCArg::Default{1}, "Return the nth block hash from the main chain. e.g. 1 would mean the best block hash. Note: this is not used as a filter, but only affects [lastblock] in the return value"},
                     {"include_watchonly", RPCArg::Type::BOOL, RPCArg::DefaultHint{"true for watch-only wallets, otherwise false"}, "Include transactions to watch-only addresses (see 'importaddress')"},
                     {"include_removed", RPCArg::Type::BOOL, RPCArg::Default{true}, "Show transactions that were removed due to a reorg in the \"removed\" array\n"
                                                                        "(not guaranteed to work on pruned nodes)"},
                     {"include_change", RPCArg::Type::BOOL, RPCArg::Default{false}, "Also add entries for change outputs.\n"},
-                    {"label", RPCArg::Type::STR, RPCArg::Optional::OMITTED_NAMED_ARG, "Return only incoming transactions paying to addresses with the specified label.\n"},
+                    {"label", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "Return only incoming transactions paying to addresses with the specified label.\n"},
                 },
                 RPCResult{
                     RPCResult::Type::OBJ, "", "",
@@ -577,8 +584,7 @@ RPCHelpMan listsinceblock()
                             },
                             TransactionDescriptionString()),
                             {
-                                {RPCResult::Type::BOOL, "abandoned", /*optional=*/true, "'true' if the transaction has been abandoned (inputs are respendable). Only available for the \n"
-                                     "'send' category of transactions."},
+                                {RPCResult::Type::BOOL, "abandoned", "'true' if the transaction has been abandoned (inputs are respendable)."},
                                 {RPCResult::Type::STR, "label", /*optional=*/true, "A comment for the address/transaction, if any"},
                             })},
                         }},
@@ -635,10 +641,9 @@ RPCHelpMan listsinceblock()
     bool include_removed = (request.params[3].isNull() || request.params[3].get_bool());
     bool include_change = (!request.params[4].isNull() && request.params[4].get_bool());
 
+    // Only set it if 'label' was provided.
     std::optional<std::string> filter_label;
-    if (!request.params[5].isNull()) {
-        filter_label = request.params[5].get_str();
-    }
+    if (!request.params[5].isNull()) filter_label.emplace(LabelFromValue(request.params[5]));
 
     int depth = height ? wallet.GetLastBlockHeight() + 1 - *height : -1;
 
@@ -677,8 +682,8 @@ RPCHelpMan listsinceblock()
     CHECK_NONFATAL(wallet.chain().findAncestorByHeight(wallet.GetLastBlockHash(), wallet.GetLastBlockHeight() + 1 - target_confirms, FoundBlock().hash(lastblock)));
 
     UniValue ret(UniValue::VOBJ);
-    ret.pushKV("transactions", transactions);
-    if (include_removed) ret.pushKV("removed", removed);
+    ret.pushKV("transactions", std::move(transactions));
+    if (include_removed) ret.pushKV("removed", std::move(removed));
     ret.pushKV("lastblock", lastblock.GetHex());
 
     return ret;
@@ -723,9 +728,8 @@ RPCHelpMan gettransaction()
                                 {RPCResult::Type::NUM, "vout", "the vout value"},
                                 {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The amount of the fee in " + CURRENCY_UNIT + ". This is negative and only available for the \n"
                                     "'send' category of transactions."},
-                                {RPCResult::Type::BOOL, "abandoned", /*optional=*/true, "'true' if the transaction has been abandoned (inputs are respendable). Only available for the \n"
-                                     "'send' category of transactions."},
-                                {RPCResult::Type::ARR, "parent_descs", /*optional=*/true, "Only if 'category' is 'received'. List of parent descriptors for the scriptPubKey of this coin.", {
+                                {RPCResult::Type::BOOL, "abandoned", "'true' if the transaction has been abandoned (inputs are respendable)."},
+                                {RPCResult::Type::ARR, "parent_descs", /*optional=*/true, "Only if 'category' is 'received'. List of parent descriptors for the output script of this coin.", {
                                     {RPCResult::Type::STR, "desc", "The descriptor string."},
                                 }},
                             }},
@@ -735,6 +739,7 @@ RPCHelpMan gettransaction()
                         {
                             {RPCResult::Type::ELISION, "", "Equivalent to the RPC decoderawtransaction method, or the RPC getrawtransaction method when `verbose` is passed."},
                         }},
+                        RESULT_LAST_PROCESSED_BLOCK,
                     })
                 },
                 RPCExamples{
@@ -784,17 +789,17 @@ RPCHelpMan gettransaction()
 
     UniValue details(UniValue::VARR);
     ListTransactions(*pwallet, wtx, 0, false, details, filter, /*filter_label=*/std::nullopt);
-    entry.pushKV("details", details);
+    entry.pushKV("details", std::move(details));
 
-    std::string strHex = EncodeHexTx(*wtx.tx, pwallet->chain().rpcSerializationFlags());
-    entry.pushKV("hex", strHex);
+    entry.pushKV("hex", EncodeHexTx(*wtx.tx));
 
     if (verbose) {
         UniValue decoded(UniValue::VOBJ);
         TxToUniv(*wtx.tx, /*block_hash=*/uint256(), /*entry=*/decoded, /*include_hex=*/false);
-        entry.pushKV("decoded", decoded);
+        entry.pushKV("decoded", std::move(decoded));
     }
 
+    AppendLastProcessedBlock(entry, *pwallet);
     return entry;
 },
     };
@@ -850,7 +855,7 @@ RPCHelpMan rescanblockchain()
                 "and block filters are available (using startup option \"-blockfilterindex=1\").\n",
                 {
                     {"start_height", RPCArg::Type::NUM, RPCArg::Default{0}, "block height where the rescan should start"},
-                    {"stop_height", RPCArg::Type::NUM, RPCArg::Optional::OMITTED_NAMED_ARG, "the last block height that should be scanned. If none is provided it will rescan up to the tip at return time of this call."},
+                    {"stop_height", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "the last block height that should be scanned. If none is provided it will rescan up to the tip at return time of this call."},
                 },
                 RPCResult{
                     RPCResult::Type::OBJ, "", "",
@@ -874,15 +879,18 @@ RPCHelpMan rescanblockchain()
     wallet.BlockUntilSyncedToCurrentChain();
 
     WalletRescanReserver reserver(*pwallet);
-    if (!reserver.reserve()) {
+    if (!reserver.reserve(/*with_passphrase=*/true)) {
         throw JSONRPCError(RPC_WALLET_ERROR, "Wallet is currently rescanning. Abort existing rescan or wait.");
     }
 
     int start_height = 0;
     std::optional<int> stop_height;
     uint256 start_block;
+
+    LOCK(pwallet->m_relock_mutex);
     {
         LOCK(pwallet->cs_wallet);
+        EnsureWalletIsUnlocked(*pwallet);
         int tip_height = pwallet->GetLastBlockHeight();
 
         if (!request.params[0].isNull()) {

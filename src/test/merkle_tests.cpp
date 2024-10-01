@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <consensus/merkle.h>
+#include <test/util/random.h>
 #include <test/util/setup_common.h>
 
 #include <boost/test/unit_test.hpp>
@@ -50,7 +51,7 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
         // For each of the lower bits in count that are 0, do 1 step. Each
         // corresponds to an inner value that existed before processing the
         // current leaf, and each needs a hash to combine it.
-        for (level = 0; !(count & (((uint32_t)1) << level)); level++) {
+        for (level = 0; !(count & ((uint32_t{1}) << level)); level++) {
             if (pbranch) {
                 if (matchh) {
                     pbranch->push_back(inner[level]);
@@ -60,7 +61,7 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
                 }
             }
             mutated |= (inner[level] == h);
-            CHash256().Write(inner[level]).Write(h).Finalize(h);
+            h = Hash(inner[level], h);
         }
         // Store the resulting hash at inner position level.
         inner[level] = h;
@@ -74,25 +75,25 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
     int level = 0;
     // As long as bit number level in count is zero, skip it. It means there
     // is nothing left at this level.
-    while (!(count & (((uint32_t)1) << level))) {
+    while (!(count & ((uint32_t{1}) << level))) {
         level++;
     }
     uint256 h = inner[level];
     bool matchh = matchlevel == level;
-    while (count != (((uint32_t)1) << level)) {
+    while (count != ((uint32_t{1}) << level)) {
         // If we reach this point, h is an inner value that is not the top.
         // We combine it with itself (Bitcoin's special rule for odd levels in
         // the tree) to produce a higher level one.
         if (pbranch && matchh) {
             pbranch->push_back(h);
         }
-        CHash256().Write(h).Write(h).Finalize(h);
+        h = Hash(h, h);
         // Increment count to the value it would have if two entries at this
         // level had existed.
-        count += (((uint32_t)1) << level);
+        count += ((uint32_t{1}) << level);
         level++;
         // And propagate the result upwards accordingly.
-        while (!(count & (((uint32_t)1) << level))) {
+        while (!(count & ((uint32_t{1}) << level))) {
             if (pbranch) {
                 if (matchh) {
                     pbranch->push_back(inner[level]);
@@ -101,7 +102,7 @@ static void MerkleComputation(const std::vector<uint256>& leaves, uint256* proot
                     matchh = true;
                 }
             }
-            CHash256().Write(inner[level]).Write(h).Finalize(h);
+            h = Hash(inner[level], h);
             level++;
         }
     }
@@ -183,7 +184,7 @@ BOOST_AUTO_TEST_CASE(merkle_test)
 {
     for (int i = 0; i < 32; i++) {
         // Try 32 block sizes: all sizes from 0 to 16 inclusive, and then 15 random sizes.
-        int ntx = (i <= 16) ? i : 17 + (InsecureRandRange(4000));
+        int ntx = (i <= 16) ? i : 17 + (m_rng.randrange(4000));
         // Try up to 3 mutations.
         for (int mutate = 0; mutate <= 3; mutate++) {
             int duplicate1 = mutate >= 1 ? 1 << ctz(ntx) : 0; // The last how many transactions to duplicate first.
@@ -236,7 +237,7 @@ BOOST_AUTO_TEST_CASE(merkle_test)
                     // If ntx <= 16, try all branches. Otherwise, try 16 random ones.
                     int mtx = loop;
                     if (ntx > 16) {
-                        mtx = InsecureRandRange(ntx);
+                        mtx = m_rng.randrange(ntx);
                     }
                     std::vector<uint256> newBranch = BlockMerkleBranch(block, mtx);
                     std::vector<uint256> oldBranch = BlockGetMerkleBranch(block, merkleTree, mtx);

@@ -18,7 +18,6 @@ class RPCMempoolInfoTest(BitcoinTestFramework):
 
     def run_test(self):
         self.wallet = MiniWallet(self.nodes[0])
-        self.wallet.rescan_utxos()
         confirmed_utxo = self.wallet.get_utxo()
 
         # Create a tree of unconfirmed transactions in the mempool:
@@ -97,4 +96,4 @@ class RPCMempoolInfoTest(BitcoinTestFramework):
 
 
 if __name__ == '__main__':
-    RPCMempoolInfoTest().main()
+    RPCMempoolInfoTest(__file__).main()

@@ -29,7 +29,7 @@ class WalletLocktimeTest(BitcoinTestFramework):
         self.log.info("Send to new address with locktime")
         node.send(
             outputs={address: 5},
-            options={"locktime": mtp_tip - 1},
+            locktime=mtp_tip - 1,
         )
         self.generate(node, 1)
 
@@ -50,4 +50,4 @@ class WalletLocktimeTest(BitcoinTestFramework):
 
 
 if __name__ == "__main__":
-    WalletLocktimeTest().main()
+    WalletLocktimeTest(__file__).main()

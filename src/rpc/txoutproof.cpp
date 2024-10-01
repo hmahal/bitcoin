@@ -10,6 +10,7 @@
 #include <merkleblock.h>
 #include <node/blockstorage.h>
 #include <primitives/transaction.h>
+#include <rpc/blockchain.h>
 #include <rpc/server.h>
 #include <rpc/server_util.h>
 #include <rpc/util.h>
@@ -18,7 +19,6 @@
 #include <validation.h>
 
 using node::GetTransaction;
-using node::ReadBlockFromDisk;
 
 static RPCHelpMan gettxoutproof()
 {
@@ -34,7 +34,7 @@ static RPCHelpMan gettxoutproof()
                     {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "A transaction hash"},
                 },
             },
-            {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED_NAMED_ARG, "If specified, looks for txid in the block with this hash"},
+            {"blockhash", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "If specified, looks for txid in the block with this hash"},
         },
         RPCResult{
             RPCResult::Type::STR, "data", "A string that is a serialized, hex-encoded data for the proof."
@@ -42,13 +42,13 @@ static RPCHelpMan gettxoutproof()
         RPCExamples{""},
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
-            std::set<uint256> setTxids;
+            std::set<Txid> setTxids;
             UniValue txids = request.params[0].get_array();
             if (txids.empty()) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Parameter 'txids' cannot be empty");
             }
             for (unsigned int idx = 0; idx < txids.size(); idx++) {
-                auto ret = setTxids.insert(ParseHashV(txids[idx], "txid"));
+                auto ret{setTxids.insert(Txid::FromUint256(ParseHashV(txids[idx], "txid")))};
                 if (!ret.second) {
                     throw JSONRPCError(RPC_INVALID_PARAMETER, std::string("Invalid parameter, duplicated txid: ") + txids[idx].get_str());
                 }
@@ -70,7 +70,7 @@ static RPCHelpMan gettxoutproof()
 
                 // Loop through txids and try to find which block they're in. Exit loop once a block is found.
                 for (const auto& tx : setTxids) {
-                    const Coin& coin = AccessByTxid(active_chainstate.CoinsTip(), tx);
+                    const Coin& coin{AccessByTxid(active_chainstate.CoinsTip(), tx)};
                     if (!coin.IsSpent()) {
                         pblockindex = active_chainstate.m_chain[coin.nHeight];
                         break;
@@ -85,7 +85,7 @@ static RPCHelpMan gettxoutproof()
             }
 
             if (pblockindex == nullptr) {
-                const CTransactionRef tx = GetTransaction(/*block_index=*/nullptr, /*mempool=*/nullptr, *setTxids.begin(), chainman.GetConsensus(), hashBlock);
+                const CTransactionRef tx = GetTransaction(/*block_index=*/nullptr, /*mempool=*/nullptr, *setTxids.begin(), hashBlock, chainman.m_blockman);
                 if (!tx || hashBlock.IsNull()) {
                     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Transaction not yet in block");
                 }
@@ -97,8 +97,12 @@ static RPCHelpMan gettxoutproof()
                 }
             }
 
+            {
+                LOCK(cs_main);
+                CheckBlockDataAvailability(chainman.m_blockman, *pblockindex, /*check_for_undo=*/false);
+            }
             CBlock block;
-            if (!ReadBlockFromDisk(block, pblockindex, chainman.GetConsensus())) {
+            if (!chainman.m_blockman.ReadBlockFromDisk(block, *pblockindex)) {
                 throw JSONRPCError(RPC_INTERNAL_ERROR, "Can't read block from disk");
             }
 
@@ -112,7 +116,7 @@ static RPCHelpMan gettxoutproof()
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Not all transactions found in specified or retrieved block");
             }
 
-            CDataStream ssMB(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
+            DataStream ssMB{};
             CMerkleBlock mb(block, setTxids);
             ssMB << mb;
             std::string strHex = HexStr(ssMB);
@@ -138,7 +142,7 @@ static RPCHelpMan verifytxoutproof()
         RPCExamples{""},
         [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
         {
-            CDataStream ssMB(ParseHexV(request.params[0], "proof"), SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
+            DataStream ssMB{ParseHexV(request.params[0], "proof")};
             CMerkleBlock merkleBlock;
             ssMB >> merkleBlock;
 

@@ -14,14 +14,11 @@
 #include <QDialog>
 #include <QString>
 
-#if defined(HAVE_CONFIG_H)
-#include <config/bitcoin-config.h> /* for USE_QRCODE */
-#endif
+#include <config/bitcoin-config.h> // IWYU pragma: keep
 
-ReceiveRequestDialog::ReceiveRequestDialog(QWidget *parent) :
-    QDialog(parent, GUIUtil::dialog_flags),
-    ui(new Ui::ReceiveRequestDialog),
-    model(nullptr)
+ReceiveRequestDialog::ReceiveRequestDialog(QWidget* parent)
+    : QDialog(parent, GUIUtil::dialog_flags),
+      ui(new Ui::ReceiveRequestDialog)
 {
     ui->setupUi(this);
     GUIUtil::handleCloseWindowShortcut(this);

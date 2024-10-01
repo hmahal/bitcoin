@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2014-2021 The Bitcoin Core developers
+# Copyright (c) 2014-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the listreceivedbyaddress, listreceivedbylabel, getreceivedybaddress, and getreceivedbylabel RPCs."""
@@ -22,7 +22,7 @@ class ReceivedByTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
         # whitelist peers to speed up tx relay / mempool sync
-        self.extra_args = [["-whitelist=noban@127.0.0.1"]] * self.num_nodes
+        self.noban_tx_relay = True
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -263,4 +263,4 @@ class ReceivedByTest(BitcoinTestFramework):
 
 
 if __name__ == '__main__':
-    ReceivedByTest().main()
+    ReceivedByTest(__file__).main()

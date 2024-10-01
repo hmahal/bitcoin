@@ -1,4 +1,4 @@
-// Copyright (c) 2011-2021 The Bitcoin Core developers
+// Copyright (c) 2011-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -140,8 +140,6 @@ private:
 OverviewPage::OverviewPage(const PlatformStyle *platformStyle, QWidget *parent) :
     QWidget(parent),
     ui(new Ui::OverviewPage),
-    clientModel(nullptr),
-    walletModel(nullptr),
     m_platform_style{platformStyle},
     txdelegate(new TxViewDelegate(platformStyle, this))
 {
@@ -175,6 +173,7 @@ void OverviewPage::handleTransactionClicked(const QModelIndex &index)
 void OverviewPage::setPrivacy(bool privacy)
 {
     m_privacy = privacy;
+    clientModel->getOptionsModel()->setOption(OptionsModel::OptionID::MaskValues, privacy);
     const auto& balances = walletModel->getCachedBalance();
     if (balances.balance != -1) {
         setBalance(balances);
@@ -251,8 +250,8 @@ void OverviewPage::setClientModel(ClientModel *model)
         connect(model, &ClientModel::alertsChanged, this, &OverviewPage::updateAlerts);
         updateAlerts(model->getStatusBarWarnings());
 
-        connect(model->getOptionsModel(), &OptionsModel::useEmbeddedMonospacedFontChanged, this, &OverviewPage::setMonospacedFont);
-        setMonospacedFont(model->getOptionsModel()->getUseEmbeddedMonospacedFont());
+        connect(model->getOptionsModel(), &OptionsModel::fontForMoneyChanged, this, &OverviewPage::setMonospacedFont);
+        setMonospacedFont(clientModel->getOptionsModel()->getFontForMoney());
     }
 }
 
@@ -264,7 +263,6 @@ void OverviewPage::setWalletModel(WalletModel *model)
         // Set up transaction list
         filter.reset(new TransactionFilterProxy());
         filter->setSourceModel(model->getTransactionTableModel());
-        filter->setLimit(NUM_ITEMS);
         filter->setDynamicSortFilter(true);
         filter->setSortRole(Qt::EditRole);
         filter->setShowInactive(false);
@@ -273,6 +271,10 @@ void OverviewPage::setWalletModel(WalletModel *model)
         ui->listTransactions->setModel(filter.get());
         ui->listTransactions->setModelColumn(TransactionTableModel::ToAddress);
 
+        connect(filter.get(), &TransactionFilterProxy::rowsInserted, this, &OverviewPage::LimitTransactionRows);
+        connect(filter.get(), &TransactionFilterProxy::rowsRemoved, this, &OverviewPage::LimitTransactionRows);
+        connect(filter.get(), &TransactionFilterProxy::rowsMoved, this, &OverviewPage::LimitTransactionRows);
+        LimitTransactionRows();
         // Keep up to date with wallet
         setBalance(model->getCachedBalance());
         connect(model, &WalletModel::balanceChanged, this, &OverviewPage::setBalance);
@@ -299,6 +301,16 @@ void OverviewPage::changeEvent(QEvent* e)
     }
 
     QWidget::changeEvent(e);
+}
+
+// Only show most recent NUM_ITEMS rows
+void OverviewPage::LimitTransactionRows()
+{
+    if (filter && ui->listTransactions && ui->listTransactions->model() && filter.get() == ui->listTransactions->model()) {
+        for (int i = 0; i < filter->rowCount(); ++i) {
+            ui->listTransactions->setRowHidden(i, i >= NUM_ITEMS);
+        }
+    }
 }
 
 void OverviewPage::updateDisplayUnit()
@@ -328,10 +340,8 @@ void OverviewPage::showOutOfSyncWarning(bool fShow)
     ui->labelTransactionsStatus->setVisible(fShow);
 }
 
-void OverviewPage::setMonospacedFont(bool use_embedded_font)
+void OverviewPage::setMonospacedFont(const QFont& f)
 {
-    QFont f = GUIUtil::fixedPitchFont(use_embedded_font);
-    f.setWeight(QFont::Bold);
     ui->labelBalance->setFont(f);
     ui->labelUnconfirmed->setFont(f);
     ui->labelImmature->setFont(f);

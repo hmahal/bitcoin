@@ -1,10 +1,6 @@
-// Copyright (c) 2011-2021 The Bitcoin Core developers
+// Copyright (c) 2011-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
-
-#if defined(HAVE_CONFIG_H)
-#include <config/bitcoin-config.h>
-#endif
 
 #include <qt/addressbookpage.h>
 #include <qt/forms/ui_addressbookpage.h>
@@ -64,7 +60,6 @@ protected:
 AddressBookPage::AddressBookPage(const PlatformStyle *platformStyle, Mode _mode, Tabs _tab, QWidget *parent) :
     QDialog(parent, GUIUtil::dialog_flags),
     ui(new Ui::AddressBookPage),
-    model(nullptr),
     mode(_mode),
     tab(_tab)
 {
@@ -82,9 +77,7 @@ AddressBookPage::AddressBookPage(const PlatformStyle *platformStyle, Mode _mode,
         ui->exportButton->setIcon(platformStyle->SingleColorIcon(":/icons/export"));
     }
 
-    switch(mode)
-    {
-    case ForSelection:
+    if (mode == ForSelection) {
         switch(tab)
         {
         case SendingTab: setWindowTitle(tr("Choose the address to send coins to")); break;
@@ -95,14 +88,6 @@ AddressBookPage::AddressBookPage(const PlatformStyle *platformStyle, Mode _mode,
         ui->tableView->setFocus();
         ui->closeButton->setText(tr("C&hoose"));
         ui->exportButton->hide();
-        break;
-    case ForEditing:
-        switch(tab)
-        {
-        case SendingTab: setWindowTitle(tr("Sending addresses")); break;
-        case ReceivingTab: setWindowTitle(tr("Receiving addresses")); break;
-        }
-        break;
     }
     switch(tab)
     {
@@ -165,6 +150,7 @@ void AddressBookPage::setModel(AddressTableModel *_model)
     connect(_model, &AddressTableModel::rowsInserted, this, &AddressBookPage::selectNewAddress);
 
     selectionChanged();
+    this->updateWindowsTitleWithWalletName();
 }
 
 void AddressBookPage::on_copyAddress_clicked()
@@ -327,5 +313,18 @@ void AddressBookPage::selectNewAddress(const QModelIndex &parent, int begin, int
         ui->tableView->setFocus();
         ui->tableView->selectRow(idx.row());
         newAddressToSelect.clear();
+    }
+}
+
+void AddressBookPage::updateWindowsTitleWithWalletName()
+{
+    const QString walletName = this->model->GetWalletDisplayName();
+
+    if (mode == ForEditing) {
+        switch(tab)
+        {
+        case SendingTab: setWindowTitle(tr("Sending addresses - %1").arg(walletName)); break;
+        case ReceivingTab: setWindowTitle(tr("Receiving addresses - %1").arg(walletName)); break;
+        }
     }
 }

@@ -211,6 +211,58 @@ Arguments passed:
 4. The expected transaction fee as an `int64`
 5. The position of the change output as an `int32`
 
+### Context `mempool`
+
+#### Tracepoint `mempool:added`
+
+Is called when a transaction is added to the node's mempool. Passes information
+about the transaction.
+
+Arguments passed:
+1. Transaction ID (hash) as `pointer to unsigned chars` (i.e. 32 bytes in little-endian)
+2. Transaction virtual size as `int32`
+3. Transaction fee as `int64`
+
+#### Tracepoint `mempool:removed`
+
+Is called when a transaction is removed from the node's mempool. Passes information
+about the transaction.
+
+Arguments passed:
+1. Transaction ID (hash) as `pointer to unsigned chars` (i.e. 32 bytes in little-endian)
+2. Removal reason as `pointer to C-style String` (max. length 9 characters)
+3. Transaction virtual size as `int32`
+4. Transaction fee as `int64`
+5. Transaction mempool entry time (epoch) as `uint64`
+
+#### Tracepoint `mempool:replaced`
+
+Is called when a transaction in the node's mempool is getting replaced by another.
+Passes information about the replaced and replacement transactions.
+
+Arguments passed:
+1. Replaced transaction ID (hash) as `pointer to unsigned chars` (i.e. 32 bytes in little-endian)
+2. Replaced transaction virtual size as `int32`
+3. Replaced transaction fee as `int64`
+4. Replaced transaction mempool entry time (epoch) as `uint64`
+5. Replacement transaction ID (hash) as `pointer to unsigned chars` (i.e. 32 bytes in little-endian)
+6. Replacement transaction virtual size as `int32`
+7. Replacement transaction fee as `int64`
+
+Note: In cases where a single replacement transaction replaces multiple
+existing transactions in the mempool, the tracepoint is called once for each
+replaced transaction, with data of the replacement transaction being the same
+in each call.
+
+#### Tracepoint `mempool:rejected`
+
+Is called when a transaction is not permitted to enter the mempool. Passes
+information about the rejected transaction.
+
+Arguments passed:
+1. Transaction ID (hash) as `pointer to unsigned chars` (i.e. 32 bytes in little-endian)
+2. Reject reason as `pointer to C-style String` (max. length 118 characters)
+
 ## Adding tracepoints to Bitcoin Core
 
 To add a new tracepoint, `#include <util/trace.h>` in the compilation unit where
@@ -314,13 +366,13 @@ USDT support.
 To list probes in Bitcoin Core, use `info probes` in `gdb`:
 
 ```
-$ gdb ./src/bitcoind
+$ gdb ./build/src/bitcoind
 …
 (gdb) info probes
 Type Provider   Name             Where              Semaphore Object
-stap net        inbound_message  0x000000000014419e /src/bitcoind
-stap net        outbound_message 0x0000000000107c05 /src/bitcoind
-stap validation block_connected  0x00000000002fb10c /src/bitcoind
+stap net        inbound_message  0x000000000014419e /build/src/bitcoind
+stap net        outbound_message 0x0000000000107c05 /build/src/bitcoind
+stap validation block_connected  0x00000000002fb10c /build/src/bitcoind
 …
 ```
 
@@ -330,7 +382,7 @@ The `readelf` tool can be used to display the USDT tracepoints in Bitcoin Core.
 Look for the notes with the description `NT_STAPSDT`.
 
 ```
-$ readelf -n ./src/bitcoind | grep NT_STAPSDT -A 4 -B 2
+$ readelf -n ./build/src/bitcoind | grep NT_STAPSDT -A 4 -B 2
 Displaying notes found in: .note.stapsdt
   Owner                 Data size	Description
   stapsdt              0x0000005d	NT_STAPSDT (SystemTap probe descriptors)
@@ -354,7 +406,7 @@ between distributions. For example, on
 [ubuntu binary]: https://github.com/iovisor/bcc/blob/master/INSTALL.md#ubuntu---binary
 
 ```
-$ tplist -l ./src/bitcoind -v
+$ tplist -l ./build/src/bitcoind -v
 b'net':b'outbound_message' [sema 0x0]
   1 location(s)
   6 argument(s)

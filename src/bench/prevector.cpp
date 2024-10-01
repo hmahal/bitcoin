@@ -1,13 +1,15 @@
-// Copyright (c) 2015-2021 The Bitcoin Core developers
+// Copyright (c) 2015-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <prevector.h>
-#include <serialize.h>
-#include <streams.h>
-#include <type_traits>
 
 #include <bench/bench.h>
+#include <serialize.h>
+#include <streams.h>
+
+#include <type_traits>
+#include <vector>
 
 struct nontrivial_t {
     int x{-1};
@@ -61,7 +63,7 @@ static void PrevectorResize(benchmark::Bench& bench)
 template <typename T>
 static void PrevectorDeserialize(benchmark::Bench& bench)
 {
-    CDataStream s0(SER_NETWORK, 0);
+    DataStream s0{};
     prevector<28, T> t0;
     t0.resize(28);
     for (auto x = 0; x < 900; ++x) {
@@ -77,6 +79,30 @@ static void PrevectorDeserialize(benchmark::Bench& bench)
             s0 >> t1;
         }
         s0.Rewind();
+    });
+}
+
+template <typename T>
+static void PrevectorFillVectorDirect(benchmark::Bench& bench)
+{
+    bench.run([&] {
+        std::vector<prevector<28, T>> vec;
+        for (size_t i = 0; i < 260; ++i) {
+            vec.emplace_back();
+        }
+    });
+}
+
+
+template <typename T>
+static void PrevectorFillVectorIndirect(benchmark::Bench& bench)
+{
+    bench.run([&] {
+        std::vector<prevector<28, T>> vec;
+        for (size_t i = 0; i < 260; ++i) {
+            // force allocation
+            vec.emplace_back(29, T{});
+        }
     });
 }
 
@@ -96,3 +122,5 @@ PREVECTOR_TEST(Clear)
 PREVECTOR_TEST(Destructor)
 PREVECTOR_TEST(Resize)
 PREVECTOR_TEST(Deserialize)
+PREVECTOR_TEST(FillVectorDirect)
+PREVECTOR_TEST(FillVectorIndirect)

@@ -13,7 +13,6 @@ Developer Notes
     - [Development tips and tricks](#development-tips-and-tricks)
         - [Compiling for debugging](#compiling-for-debugging)
         - [Show sources in debugging](#show-sources-in-debugging)
-        - [Compiling for gprof profiling](#compiling-for-gprof-profiling)
         - [`debug.log`](#debuglog)
         - [Signet, testnet, and regtest modes](#signet-testnet-and-regtest-modes)
         - [DEBUG_LOCKORDER](#debug_lockorder)
@@ -109,6 +108,14 @@ code.
   - `++i` is preferred over `i++`.
   - `nullptr` is preferred over `NULL` or `(void*)0`.
   - `static_assert` is preferred over `assert` where possible. Generally; compile-time checking is preferred over run-time checking.
+  - Use a named cast or functional cast, not a C-Style cast. When casting
+    between integer types, use functional casts such as `int(x)` or `int{x}`
+    instead of `(int) x`. When casting between more complex types, use `static_cast`.
+    Use `reinterpret_cast` and `const_cast` as appropriate.
+  - Prefer [`list initialization ({})`](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#Res-list) where possible.
+    For example `int x{0};` instead of `int x = 0;` or `int x(0);`
+  - Recursion is checked by clang-tidy and thus must be made explicit. Use
+    `NOLINTNEXTLINE(misc-no-recursion)` to suppress the check.
 
 For function calls a namespace should be specified explicitly, unless such functions have been declared within it.
 Otherwise, [argument-dependent lookup](https://en.cppreference.com/w/cpp/language/adl), also known as ADL, could be
@@ -134,7 +141,7 @@ int main()
 
 Block style example:
 ```c++
-int g_count = 0;
+int g_count{0};
 
 namespace foo {
 class Class
@@ -146,7 +153,7 @@ public:
     {
         // Comment summarising what this section of code does
         for (int i = 0; i < n; ++i) {
-            int total_sum = 0;
+            int total_sum{0};
             // When something fails, return early
             if (!Something()) return false;
             ...
@@ -207,27 +214,28 @@ int main()
 To run clang-tidy on Ubuntu/Debian, install the dependencies:
 
 ```sh
-apt install clang-tidy bear clang
+apt install clang-tidy clang
 ```
 
-Then, pass clang as compiler to configure, and use bear to produce the `compile_commands.json`:
+Configure with clang as the compiler:
 
 ```sh
-./autogen.sh && ./configure CC=clang CXX=clang++
-make clean && bear make -j $(nproc)     # For bear 2.x
-make clean && bear -- make -j $(nproc)  # For bear 3.x
+cmake -B build -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+cmake --build build -j $(nproc)
 ```
+
+The output is denoised of errors from external dependencies.
 
 To run clang-tidy on all source files:
 
 ```sh
-( cd ./src/ && run-clang-tidy  -j $(nproc) )
+( cd ./src/ && run-clang-tidy -p ../build -j $(nproc) )
 ```
 
 To run clang-tidy on the changed source lines:
 
 ```sh
-git diff | ( cd ./src/ && clang-tidy-diff -p2 -j $(nproc) )
+git diff | ( cd ./src/ && clang-tidy-diff -p2 -path ../build -j $(nproc) )
 ```
 
 Coding Style (Python)
@@ -325,16 +333,17 @@ Recommendations:
 - Avoid linking to external documentation; links can break.
 
 - Javadoc and all valid Doxygen comments are stripped from Doxygen source code
-  previews (`STRIP_CODE_COMMENTS = YES` in [Doxyfile.in](doc/Doxyfile.in)). If
+  previews (`STRIP_CODE_COMMENTS = YES` in [Doxyfile.in](/doc/Doxyfile.in)). If
   you want a comment to be preserved, it must instead use `//` or `/* */`.
 
 ### Generating Documentation
 
-The documentation can be generated with `make docs` and cleaned up with `make
-clean-docs`. The resulting files are located in `doc/doxygen/html`; open
-`index.html` in that directory to view the homepage.
+Assuming the build directory is named `build`,
+the documentation can be generated with `cmake --build build --target docs`.
+The resulting files will be located in `build/doc/doxygen/html`;
+open `index.html` in that directory to view the homepage.
 
-Before running `make docs`, you'll need to install these dependencies:
+Before building the `docs` target, you'll need to install these dependencies:
 
 Linux: `sudo apt install doxygen graphviz`
 
@@ -345,13 +354,19 @@ Development tips and tricks
 
 ### Compiling for debugging
 
-Run configure with `--enable-debug` to add additional compiler flags that
-produce better debugging builds.
+When using the default build configuration by running `cmake -B build`, the
+`-DCMAKE_BUILD_TYPE` is set to `RelWithDebInfo`. This option adds debug symbols
+but also performs some compiler optimizations that may make debugging trickier
+as the code may not correspond directly to the source.
+
+If you need to build exclusively for debugging, set the `-DCMAKE_BUILD_TYPE`
+to `Debug` (i.e. `-DCMAKE_BUILD_TYPE=Debug`). You can always check the cmake
+build options of an existing build with `ccmake build`.
 
 ### Show sources in debugging
 
 If you have ccache enabled, absolute paths are stripped from debug information
-with the -fdebug-prefix-map and -fmacro-prefix-map options (if supported by the
+with the `-fdebug-prefix-map` and `-fmacro-prefix-map` options (if supported by the
 compiler). This might break source file detection in case you move binaries
 after compilation, debug from the directory other than the project root or use
 an IDE that only supports absolute paths for debugging.
@@ -376,10 +391,6 @@ ln -s /path/to/project/root/src src
 ```
 
 3. Use `debugedit` to modify debug information in the binary.
-
-### Compiling for gprof profiling
-
-Run configure with the `--enable-gprof` option, then make.
 
 ### `debug.log`
 
@@ -407,8 +418,8 @@ see [test/functional/](/test/functional) for tests that run in `-regtest` mode.
 ### DEBUG_LOCKORDER
 
 Bitcoin Core is a multi-threaded application, and deadlocks or other
-multi-threading bugs can be very difficult to track down. The `--enable-debug`
-configure option adds `-DDEBUG_LOCKORDER` to the compiler flags. This inserts
+multi-threading bugs can be very difficult to track down. The `-DCMAKE_BUILD_TYPE=Debug`
+build option adds `-DDEBUG_LOCKORDER` to the compiler flags. This inserts
 run-time checks to keep track of which locks are held and adds warnings to the
 `debug.log` file if inconsistencies are detected.
 
@@ -418,9 +429,8 @@ Defining `DEBUG_LOCKCONTENTION` adds a "lock" logging category to the logging
 RPC that, when enabled, logs the location and duration of each lock contention
 to the `debug.log` file.
 
-The `--enable-debug` configure option adds `-DDEBUG_LOCKCONTENTION` to the
-compiler flags. You may also enable it manually for a non-debug build by running
-configure with `-DDEBUG_LOCKCONTENTION` added to your CPPFLAGS,
+The `-DCMAKE_BUILD_TYPE=Debug` build option adds `-DDEBUG_LOCKCONTENTION` to the
+compiler flags. You may also enable it manually by building with `-DDEBUG_LOCKCONTENTION` added to your CPPFLAGS,
 i.e. `CPPFLAGS="-DDEBUG_LOCKCONTENTION"`, then build and run bitcoind.
 
 You can then use the `-debug=lock` configuration option at bitcoind startup or
@@ -463,27 +473,42 @@ which includes known Valgrind warnings in our dependencies that cannot be fixed
 in-tree. Example use:
 
 ```shell
-$ valgrind --suppressions=contrib/valgrind.supp src/test/test_bitcoin
+$ valgrind --suppressions=contrib/valgrind.supp build/src/test/test_bitcoin
 $ valgrind --suppressions=contrib/valgrind.supp --leak-check=full \
-      --show-leak-kinds=all src/test/test_bitcoin --log_level=test_suite
-$ valgrind -v --leak-check=full src/bitcoind -printtoconsole
-$ ./test/functional/test_runner.py --valgrind
+      --show-leak-kinds=all build/src/test/test_bitcoin --log_level=test_suite
+$ valgrind -v --leak-check=full build/src/bitcoind -printtoconsole
+$ ./build/test/functional/test_runner.py --valgrind
 ```
 
 ### Compiling for test coverage
 
-LCOV can be used to generate a test coverage report based upon `make check`
+LCOV can be used to generate a test coverage report based upon `ctest`
 execution. LCOV must be installed on your system (e.g. the `lcov` package
 on Debian/Ubuntu).
 
 To enable LCOV report generation during test runs:
 
 ```shell
-./configure --enable-lcov
-make
-make cov
+cmake -B build -DCMAKE_BUILD_TYPE=Coverage
+cmake --build build
+cmake -P build/Coverage.cmake
 
-# A coverage report will now be accessible at `./test_bitcoin.coverage/index.html`.
+# A coverage report will now be accessible at `./build/test_bitcoin.coverage/index.html`,
+# which covers unit tests, and `./build/total.coverage/index.html`, which covers
+# unit and functional tests.
+```
+
+Additional LCOV options can be specified using `LCOV_OPTS`, but may be dependent
+on the version of LCOV. For example, when using LCOV `2.x`, branch coverage can be
+enabled by setting `LCOV_OPTS="--rc branch_coverage=1"`:
+
+```
+cmake -DLCOV_OPTS="--rc branch_coverage=1" -P build/Coverage.cmake
+```
+
+To enable test parallelism:
+```
+cmake -DJOBS=$(nproc) -P build/Coverage.cmake
 ```
 
 ### Performance profiling with perf
@@ -535,7 +560,7 @@ See the functional test documentation for how to invoke perf within tests.
 Bitcoin Core can be compiled with various "sanitizers" enabled, which add
 instrumentation for issues regarding things like memory safety, thread race
 conditions, or undefined behavior. This is controlled with the
-`--with-sanitizers` configure flag, which should be a comma separated list of
+`-DSANITIZERS` cmake build flag, which should be a comma separated list of
 sanitizers to enable. The sanitizer list should correspond to supported
 `-fsanitize=` options in your compiler. These sanitizers have runtime overhead,
 so they are most useful when testing changes or producing debugging builds.
@@ -544,28 +569,32 @@ Some examples:
 
 ```bash
 # Enable both the address sanitizer and the undefined behavior sanitizer
-./configure --with-sanitizers=address,undefined
+cmake -B build -DSANITIZERS=address,undefined
 
 # Enable the thread sanitizer
-./configure --with-sanitizers=thread
+cmake -B build -DSANITIZERS=thread
 ```
 
 If you are compiling with GCC you will typically need to install corresponding
 "san" libraries to actually compile with these flags, e.g. libasan for the
 address sanitizer, libtsan for the thread sanitizer, and libubsan for the
-undefined sanitizer. If you are missing required libraries, the configure script
+undefined sanitizer. If you are missing required libraries, the build
 will fail with a linker error when testing the sanitizer flags.
 
-The test suite should pass cleanly with the `thread` and `undefined` sanitizers,
-but there are a number of known problems when using the `address` sanitizer. The
-address sanitizer is known to fail in
-[sha256_sse4::Transform](/src/crypto/sha256_sse4.cpp) which makes it unusable
-unless you also use `--disable-asm` when running configure. We would like to fix
-sanitizer issues, so please send pull requests if you can fix any errors found
-by the address sanitizer (or any other sanitizer).
+The test suite should pass cleanly with the `thread` and `undefined` sanitizers. You
+may need to use a suppressions file, see `test/sanitizer_suppressions`. They may be
+used as follows:
+```bash
+export LSAN_OPTIONS="suppressions=$(pwd)/test/sanitizer_suppressions/lsan"
+export TSAN_OPTIONS="suppressions=$(pwd)/test/sanitizer_suppressions/tsan:halt_on_error=1:second_deadlock_stack=1"
+export UBSAN_OPTIONS="suppressions=$(pwd)/test/sanitizer_suppressions/ubsan:print_stacktrace=1:halt_on_error=1:report_error_type=1"
+```
+
+See the CI config for more examples, and upstream documentation for more information
+about any additional options.
 
 Not all sanitizer options can be enabled at the same time, e.g. trying to build
-with `--with-sanitizers=address,thread` will fail in the configure script as
+with `-DSANITIZERS=address,thread` will fail in the build as
 these sanitizers are mutually incompatible. Refer to your compiler manual to
 learn more about these options and which sanitizers are supported by your
 compiler.
@@ -579,7 +608,6 @@ Additional resources:
  * [UndefinedBehaviorSanitizer](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html)
  * [GCC Instrumentation Options](https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html)
  * [Google Sanitizers Wiki](https://github.com/google/sanitizers/wiki)
- * [Issue #12691: Enable -fsanitize flags in Travis](https://github.com/bitcoin/bitcoin/issues/12691)
 
 Locking/mutex usage notes
 -------------------------
@@ -590,7 +618,7 @@ The code is multi-threaded and uses mutexes and the
 Deadlocks due to inconsistent lock ordering (thread 1 locks `cs_main` and then
 `cs_wallet`, while thread 2 locks them in the opposite order: result, deadlock
 as each waits for the other to release its lock) are a problem. Compile with
-`-DDEBUG_LOCKORDER` (or use `--enable-debug`) to get lock order inconsistencies
+`-DDEBUG_LOCKORDER` (or use `-DCMAKE_BUILD_TYPE=Debug`) to get lock order inconsistencies
 reported in the `debug.log` file.
 
 Re-architecting the core code so there are better-defined interfaces
@@ -605,8 +633,9 @@ Threads
   : Started from `main()` in `bitcoind.cpp`. Responsible for starting up and
   shutting down the application.
 
-- [ThreadImport (`b-loadblk`)](https://doxygen.bitcoincore.org/namespacenode.html#ab4305679079866f0f420f7dbf278381d)
-  : Loads blocks from `blk*.dat` files or `-loadblock=<file>` on startup.
+- [Init load (`b-initload`)](https://doxygen.bitcoincore.org/namespacenode.html#ab4305679079866f0f420f7dbf278381d)
+  : Performs various loading tasks that are part of init but shouldn't block the node from being started: external block import,
+   reindex, reindex-chainstate, main chain activation, spawn indexes background sync threads and mempool load.
 
 - [CCheckQueue::Loop (`b-scriptch.x`)](https://doxygen.bitcoincore.org/class_c_check_queue.html#a6e7fa51d3a25e7cb65446d4b50e6a987)
   : Parallel script validation threads for transactions in blocks.
@@ -706,6 +735,45 @@ General Bitcoin Core
   - *Explanation*: If the test suite is to be updated for a change, this has to
     be done first.
 
+Logging
+-------
+
+The macros `LogInfo`, `LogDebug`, `LogTrace`, `LogWarning` and `LogError` are available for
+logging messages. They should be used as follows:
+
+- `LogDebug(BCLog::CATEGORY, fmt, params...)` is what you want
+  most of the time, and it should be used for log messages that are
+  useful for debugging and can reasonably be enabled on a production
+  system (that has sufficient free storage space). They will be logged
+  if the program is started with `-debug=category` or `-debug=1`.
+
+- `LogInfo(fmt, params...)` should only be used rarely, e.g. for startup
+  messages or for infrequent and important events such as a new block tip
+  being found or a new outbound connection being made. These log messages
+  are unconditional, so care must be taken that they can't be used by an
+  attacker to fill up storage. Note that `LogPrintf(fmt, params...)` is
+  a deprecated alias for `LogInfo`.
+
+- `LogError(fmt, params...)` should be used in place of `LogInfo` for
+  severe problems that require the node (or a subsystem) to shut down
+  entirely (e.g., insufficient storage space).
+
+- `LogWarning(fmt, params...)` should be used in place of `LogInfo` for
+  severe problems that the node admin should address, but are not
+  severe enough to warrant shutting down the node (e.g., system time
+  appears to be wrong, unknown soft fork appears to have activated).
+
+- `LogTrace(BCLog::CATEGORY, fmt, params...)` should be used in place of
+  `LogDebug` for log messages that would be unusable on a production
+  system, e.g. due to being too noisy in normal use, or too resource
+  intensive to process. These will be logged if the startup
+  options `-debug=category -loglevel=category:trace` or `-debug=1
+  -loglevel=trace` are selected.
+
+Note that the format strings and parameters of `LogDebug` and `LogTrace`
+are only evaluated if the logging category is enabled, so you must be
+careful to avoid side-effects in those expressions.
+
 Wallet
 -------
 
@@ -721,12 +789,6 @@ Common misconceptions are clarified in those sections:
 
 - Passing (non-)fundamental types in the [C++ Core
   Guideline](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#Rf-conventional).
-
-- Assertions should not have side-effects.
-
-  - *Rationale*: Even though the source code is set to refuse to compile
-    with assertions disabled, having side-effects in assertions is unexpected and
-    makes the code harder to understand.
 
 - If you use the `.h`, you must link the `.cpp`.
 
@@ -842,12 +904,12 @@ Strings and formatting
     buffer overflows, and surprises with `\0` characters. Also, some C string manipulations
     tend to act differently depending on platform, or even the user locale.
 
-- Use `ParseInt32`, `ParseInt64`, `ParseUInt32`, `ParseUInt64`, `ParseDouble` from `utilstrencodings.h` for number parsing.
+- Use `ToIntegral` from [`strencodings.h`](/src/util/strencodings.h) for number parsing. In legacy code you might also find `ParseInt*` family of functions, `ParseDouble` or `LocaleIndependentAtoi`.
 
   - *Rationale*: These functions do overflow checking and avoid pesky locale issues.
 
 - Avoid using locale dependent functions if possible. You can use the provided
-  [`lint-locale-dependence.sh`](/test/lint/lint-locale-dependence.sh)
+  [`lint-locale-dependence.py`](/test/lint/lint-locale-dependence.py)
   to check for accidental use of locale dependent functions.
 
   - *Rationale*: Unnecessary locale dependence can cause bugs that are very tricky to isolate and fix.
@@ -874,7 +936,7 @@ Strings and formatting
     `wcstoll`, `wcstombs`, `wcstoul`, `wcstoull`, `wcstoumax`, `wcswidth`,
     `wcsxfrm`, `wctob`, `wctomb`, `wctrans`, `wctype`, `wcwidth`, `wprintf`
 
-- For `strprintf`, `LogPrint`, `LogPrintf` formatting characters don't need size specifiers.
+- For `strprintf`, `LogInfo`, `LogDebug`, etc formatting characters don't need size specifiers.
 
   - *Rationale*: Bitcoin Core uses tinyformat, which is type safe. Leave them out to avoid confusion.
 
@@ -886,7 +948,7 @@ Strings and formatting
 
     - *Rationale*: Although this is guaranteed to be safe starting with C++11, `.data()` communicates the intent better.
 
-  - Do not use it when passing strings to `tfm::format`, `strprintf`, `LogPrint[f]`.
+  - Do not use it when passing strings to `tfm::format`, `strprintf`, `LogInfo`, `LogDebug`, etc.
 
     - *Rationale*: This is redundant. Tinyformat handles strings.
 
@@ -937,7 +999,9 @@ Threads and synchronization
     internal to a class (private or protected) rather than public.
 
   - Combine annotations in function declarations with run-time asserts in
-    function definitions:
+    function definitions (`AssertLockNotHeld()` can be omitted if `LOCK()` is
+    called unconditionally after it because `LOCK()` does the same check as
+    `AssertLockNotHeld()` internally, for non-recursive mutexes):
 
 ```C++
 // txmempool.h
@@ -997,8 +1061,8 @@ bool Chainstate::PreciousBlock(BlockValidationState& state, CBlockIndex* pindex)
 ```
 
 - Build and run tests with `-DDEBUG_LOCKORDER` to verify that no potential
-  deadlocks are introduced. As of 0.12, this is defined by default when
-  configuring with `--enable-debug`.
+  deadlocks are introduced. This is defined by default when
+  building with `-DCMAKE_BUILD_TYPE=Debug`.
 
 - When using `LOCK`/`TRY_LOCK` be aware that the lock exists in the context of
   the current scope, so surround the statement and the code that needs the lock
@@ -1282,8 +1346,7 @@ Release notes should be written for any PR that:
 
 Release notes should be added to a PR-specific release note file at
 `/doc/release-notes-<PR number>.md` to avoid conflicts between multiple PRs.
-All `release-notes*` files are merged into a single
-[/doc/release-notes.md](/doc/release-notes.md) file prior to the release.
+All `release-notes*` files are merged into a single `release-notes-<version>.md` file prior to the release.
 
 RPC interface guidelines
 --------------------------
@@ -1391,7 +1454,7 @@ A few guidelines for introducing and reviewing new RPC interfaces:
 
   - *Rationale*: User-facing consistency.
 
-- Use `fs::path::u8string()` and `fs::u8path()` functions when converting path
+- Use `fs::path::u8string()`/`fs::path::utf8string()` and `fs::u8path()` functions when converting path
   to JSON strings, not `fs::PathToString` and `fs::PathFromString`
 
   - *Rationale*: JSON strings are Unicode strings, not byte strings, and
@@ -1406,8 +1469,9 @@ independent (node, wallet, GUI), are defined in
 there are [`interfaces::Chain`](../src/interfaces/chain.h), used by wallet to
 access the node's latest chain state,
 [`interfaces::Node`](../src/interfaces/node.h), used by the GUI to control the
-node, and [`interfaces::Wallet`](../src/interfaces/wallet.h), used by the GUI
-to control an individual wallet. There are also more specialized interface
+node, [`interfaces::Wallet`](../src/interfaces/wallet.h), used by the GUI
+to control an individual wallet and [`interfaces::Mining`](../src/interfaces/mining.h),
+used by RPC to generate block templates. There are also more specialized interface
 types like [`interfaces::Handler`](../src/interfaces/handler.h)
 [`interfaces::ChainClient`](../src/interfaces/chain.h) passed to and from
 various interface methods.

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-# Copyright (c) 2018-2021 The Bitcoin Core developers
+# Copyright (c) 2018-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test the avoid_reuse and setwalletflag features."""
 
+from test_framework.address import address_to_scriptpubkey
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
     assert_approx,
@@ -68,9 +69,8 @@ class AvoidReuseTest(BitcoinTestFramework):
 
     def set_test_params(self):
         self.num_nodes = 2
-        # This test isn't testing txn relay/timing, so set whitelist on the
-        # peers for instant txn relay. This speeds up the test run time 2-3x.
-        self.extra_args = [["-whitelist=noban@127.0.0.1"]] * self.num_nodes
+        # whitelist peers to speed up tx relay / mempool sync
+        self.noban_tx_relay = True
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -119,6 +119,8 @@ class AvoidReuseTest(BitcoinTestFramework):
         # Attempting to set flag to its current state should throw
         assert_raises_rpc_error(-8, "Wallet flag is already set to false", self.nodes[0].setwalletflag, 'avoid_reuse', False)
         assert_raises_rpc_error(-8, "Wallet flag is already set to true", self.nodes[1].setwalletflag, 'avoid_reuse', True)
+
+        assert_raises_rpc_error(-8, "Unknown wallet flag: abc", self.nodes[0].setwalletflag, 'abc', True)
 
         # Create a wallet with avoid reuse, and test that disabling it afterwards persists
         self.nodes[1].createwallet(wallet_name="avoid_reuse_persist", avoid_reuse=True)
@@ -193,7 +195,7 @@ class AvoidReuseTest(BitcoinTestFramework):
         # getbalances should show no used, 10 btc trusted
         assert_balances(self.nodes[1], mine={"used": 0, "trusted": 10})
         # node 0 should not show a used entry, as it does not enable avoid_reuse
-        assert("used" not in self.nodes[0].getbalances()["mine"])
+        assert "used" not in self.nodes[0].getbalances()["mine"]
 
         self.nodes[1].sendtoaddress(retaddr, 5)
         self.generate(self.nodes[0], 1)
@@ -254,8 +256,8 @@ class AvoidReuseTest(BitcoinTestFramework):
 
         if not self.options.descriptors:
             # For the second send, we transmute it to a related single-key address
-            # to make sure it's also detected as re-use
-            fund_spk = self.nodes[0].getaddressinfo(fundaddr)["scriptPubKey"]
+            # to make sure it's also detected as reuse
+            fund_spk = address_to_scriptpubkey(fundaddr).hex()
             fund_decoded = self.nodes[0].decodescript(fund_spk)
             if second_addr_type == "p2sh-segwit":
                 new_fundaddr = fund_decoded["segwit"]["p2sh-segwit"]
@@ -379,4 +381,4 @@ class AvoidReuseTest(BitcoinTestFramework):
 
 
 if __name__ == '__main__':
-    AvoidReuseTest().main()
+    AvoidReuseTest(__file__).main()

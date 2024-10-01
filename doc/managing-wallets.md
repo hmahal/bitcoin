@@ -20,7 +20,7 @@ By default, wallets are created in the `wallets` folder of the data directory, w
 | Operating System | Default wallet directory                                    |
 | -----------------|:------------------------------------------------------------|
 | Linux            | `/home/<user>/.bitcoin/wallets`                             |
-| Windows          | `C:\Users\<user>\AppData\Roaming\Bitcoin\wallets`           |
+| Windows          | `C:\Users\<user>\AppData\Local\Bitcoin\wallets`             |
 | macOS            | `/Users/<user>/Library/Application Support/Bitcoin/wallets` |
 
 ### 1.2 Encrypting the Wallet
@@ -88,7 +88,7 @@ In the RPC, the destination parameter must include the name of the file. Otherwi
 $ bitcoin-cli -rpcwallet="wallet-01" backupwallet /home/node01/Backups/backup-01.dat
 ```
 
-In the GUI, the wallet is selected in the `Wallet` drop-down list in the upper right corner. If this list is not present, the wallet can be loaded in `File` ->`Open wallet` if necessary. Then, the backup can be done in `File` -> `Backup Wallet...`.
+In the GUI, the wallet is selected in the `Wallet` drop-down list in the upper right corner. If this list is not present, the wallet can be loaded in `File` ->`Open Wallet` if necessary. Then, the backup can be done in `File` -> `Backup Wallet…`.
 
 This backup file can be stored on one or multiple offline devices, which must be reliable enough to work in an emergency and be malware free. Backup files can be regularly tested to avoid problems in the future.
 
@@ -108,7 +108,7 @@ Wallets created before version 0.13 are not HD and must be backed up every 100 k
 
 ### 1.6 Restoring the Wallet From a Backup
 
-To restore a wallet, the `restorewallet` RPC must be used.
+To restore a wallet, the `restorewallet` RPC or the `Restore Wallet` GUI menu item (`File` -> `Restore Wallet…`) must be used.
 
 ```
 $ bitcoin-cli restorewallet "restored-wallet" /home/node01/Backups/backup-01.dat
@@ -121,6 +121,22 @@ $ bitcoin-cli -rpcwallet="restored-wallet" getwalletinfo
 ```
 
 The restored wallet can also be loaded in the GUI via `File` ->`Open wallet`.
+
+## Wallet Passphrase
+
+Understanding wallet security is crucial for safely storing your Bitcoin. A key aspect is the wallet passphrase, used for encryption. Let's explore its nuances, role, encryption process, and limitations.
+
+- **Not the Seed:**
+The wallet passphrase and the seed are two separate components in wallet security. The seed, or HD seed, functions as a master key for deriving private and public keys in a hierarchical deterministic (HD) wallet. In contrast, the passphrase serves as an additional layer of security specifically designed to secure the private keys within the wallet. The passphrase serves as a safeguard, demanding an additional layer of authentication to access funds in the wallet.
+
+- **Protection Against Unauthorized Access:**
+The passphrase serves as a protective measure, securing your funds in situations where an unauthorized user gains access to your unlocked computer or device while your wallet application is active. Without the passphrase, they would be unable to access your wallet's funds or execute transactions. However, it's essential to be aware that someone with access can potentially compromise the security of your passphrase by installing a keylogger.
+
+- **Doesn't Encrypt Metadata or Public Keys:**
+It's important to note that the passphrase primarily secures the private keys and access to funds within the wallet. It does not encrypt metadata associated with transactions or public keys. Information about your transaction history and the public keys involved may still be visible.
+
+- **Risk of Fund Loss if Forgotten or Lost:**
+If the wallet passphrase is too complex and is subsequently forgotten or lost, there is a risk of losing access to the funds permanently. A forgotten passphrase will result in the inability to unlock the wallet and access the funds.
 
 ## Migrating Legacy Wallets to Descriptor Wallets
 
@@ -144,5 +160,5 @@ unforeseen configurations which result in some scripts being excluded. If a migr
 unexpectedly or otherwise misses any scripts, please create an issue on GitHub. A backup of the
 original wallet can be found in the wallet directory with the name `<name>-<timestamp>.legacy.bak`.
 
-The backup can be restored using the `restorewallet` command as discussed in the
-[Restoring the Wallet From a Backup](#16-restoring-the-wallet-from-a-backup) section
+The backup can be restored using the methods discussed in the
+[Restoring the Wallet From a Backup](#16-restoring-the-wallet-from-a-backup) section.

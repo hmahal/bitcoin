@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2018-2021 The Bitcoin Core developers
+# Copyright (c) 2018-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """upgradewallet RPC functional test
@@ -138,11 +138,11 @@ class UpgradeWalletTest(BitcoinTestFramework):
 
         self.log.info("Test upgradewallet RPC...")
         # Prepare for copying of the older wallet
-        node_master_wallet_dir = os.path.join(node_master.datadir, "regtest/wallets", self.default_wallet_name)
-        node_master_wallet = os.path.join(node_master_wallet_dir, self.default_wallet_name, self.wallet_data_filename)
-        v16_3_wallet       = os.path.join(v16_3_node.datadir, "regtest/wallets/wallet.dat")
-        v15_2_wallet       = os.path.join(v15_2_node.datadir, "regtest/wallet.dat")
-        split_hd_wallet    = os.path.join(v15_2_node.datadir, "regtest/splithd")
+        node_master_wallet_dir = node_master.wallets_path / self.default_wallet_name
+        node_master_wallet = node_master_wallet_dir / self.default_wallet_name / self.wallet_data_filename
+        v16_3_wallet = v16_3_node.wallets_path / "wallet.dat"
+        v15_2_wallet = v15_2_node.chain_path / "wallet.dat"
+        split_hd_wallet = v15_2_node.chain_path / "splithd"
         self.stop_nodes()
 
         # Make split hd wallet
@@ -231,7 +231,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
         assert b'\x07hdchain' in new_kvs
         hd_chain = new_kvs[b'\x07hdchain']
         assert_equal(28, len(hd_chain))
-        hd_chain_version, external_counter, seed_id = struct.unpack('<iI20s', hd_chain)
+        hd_chain_version, _external_counter, seed_id = struct.unpack('<iI20s', hd_chain)
         assert_equal(1, hd_chain_version)
         seed_id = bytearray(seed_id)
         seed_id.reverse()
@@ -258,7 +258,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
         new_kvs = dump_bdb_kv(node_master_wallet)
         hd_chain = new_kvs[b'\x07hdchain']
         assert_equal(32, len(hd_chain))
-        hd_chain_version, external_counter, seed_id, internal_counter = struct.unpack('<iI20sI', hd_chain)
+        hd_chain_version, _external_counter, seed_id, internal_counter = struct.unpack('<iI20sI', hd_chain)
         assert_equal(2, hd_chain_version)
         assert_equal(0, internal_counter)
         seed_id = bytearray(seed_id)
@@ -284,7 +284,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
         new_kvs = dump_bdb_kv(node_master_wallet)
         hd_chain = new_kvs[b'\x07hdchain']
         assert_equal(32, len(hd_chain))
-        hd_chain_version, external_counter, seed_id, internal_counter = struct.unpack('<iI20sI', hd_chain)
+        hd_chain_version, _external_counter, seed_id, internal_counter = struct.unpack('<iI20sI', hd_chain)
         assert_equal(2, hd_chain_version)
         assert_equal(2, internal_counter)
         # The next addresses are HD and should be on different HD chains (the one remaining key in each pool should have been flushed)
@@ -301,8 +301,8 @@ class UpgradeWalletTest(BitcoinTestFramework):
         new_kvs = dump_bdb_kv(node_master_wallet)
         for k, old_v in old_kvs.items():
             if k.startswith(b'\x07keymeta'):
-                new_ver, new_create_time, new_kp_str, new_seed_id, new_fpr, new_path_len, new_path, new_has_key_orig = deser_keymeta(BytesIO(new_kvs[k]))
-                old_ver, old_create_time, old_kp_str, old_seed_id, old_fpr, old_path_len, old_path, old_has_key_orig = deser_keymeta(BytesIO(old_v))
+                new_ver, new_create_time, new_kp_str, new_seed_id, _new_fpr, new_path_len, new_path, new_has_key_orig = deser_keymeta(BytesIO(new_kvs[k]))
+                old_ver, old_create_time, old_kp_str, old_seed_id, _old_fpr, old_path_len, old_path, old_has_key_orig = deser_keymeta(BytesIO(old_v))
                 assert_equal(10, old_ver)
                 if old_kp_str == b"": # imported things that don't have keymeta (i.e. imported coinbase privkeys) won't be upgraded
                     assert_equal(new_kvs[k], old_v)
@@ -360,4 +360,4 @@ class UpgradeWalletTest(BitcoinTestFramework):
             self.test_upgradewallet(disabled_wallet, previous_version=169900, expected_version=169900)
 
 if __name__ == '__main__':
-    UpgradeWalletTest().main()
+    UpgradeWalletTest(__file__).main()

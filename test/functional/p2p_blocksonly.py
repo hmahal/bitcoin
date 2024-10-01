@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2019-2021 The Bitcoin Core developers
+# Copyright (c) 2019-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test p2p blocksonly mode & block-relay-only connections."""
@@ -20,8 +20,6 @@ class P2PBlocksOnly(BitcoinTestFramework):
 
     def run_test(self):
         self.miniwallet = MiniWallet(self.nodes[0])
-        # Add enough mature utxos to the wallet, so that all txs spend confirmed coins
-        self.miniwallet.rescan_utxos()
 
         self.blocksonly_mode_tests()
         self.blocks_relay_conn_tests()
@@ -103,8 +101,8 @@ class P2PBlocksOnly(BitcoinTestFramework):
         # Bump time forward to ensure m_next_inv_send_time timer pops
         self.nodes[0].setmocktime(int(time.time()) + 60)
 
-        conn.sync_send_with_ping()
-        assert(int(txid, 16) not in conn.get_invs())
+        conn.sync_with_ping()
+        assert int(txid, 16) not in conn.get_invs()
 
     def check_p2p_inv_violation(self, peer):
         self.log.info("Check that tx-invs from P2P are rejected and result in disconnect")
@@ -127,4 +125,4 @@ class P2PBlocksOnly(BitcoinTestFramework):
 
 
 if __name__ == '__main__':
-    P2PBlocksOnly().main()
+    P2PBlocksOnly(__file__).main()

@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2021 The Bitcoin Core developers
+// Copyright (c) 2009-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -12,6 +12,9 @@
 
 #include <cstdint>
 #include <optional>
+
+using util::ContainsNoNUL;
+using util::TrimString;
 
 std::string FormatMoney(const CAmount n)
 {
@@ -34,7 +37,7 @@ std::string FormatMoney(const CAmount n)
         str.erase(str.size()-nTrim, nTrim);
 
     if (n < 0)
-        str.insert((unsigned int)0, 1, '-');
+        str.insert(uint32_t{0}, 1, '-');
     return str;
 }
 

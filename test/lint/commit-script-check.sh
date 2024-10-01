@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copyright (c) 2017-2021 The Bitcoin Core developers
+# Copyright (c) 2017-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -19,6 +19,11 @@ fi
 
 if ! sed --help 2>&1 | grep -q 'GNU'; then
     echo "Error: the installed sed package is not compatible. Please make sure you have GNU sed installed in your system.";
+    exit 1;
+fi
+
+if ! grep --help 2>&1 | grep -q 'GNU'; then
+    echo "Error: the installed grep package is not compatible. Please make sure you have GNU grep installed in your system.";
     exit 1;
 fi
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2016-2021 The Bitcoin Core developers
+# Copyright (c) 2016-2022 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -19,7 +19,6 @@ EXCLUDE = [
     'src/qt/bitcoinstrings.cpp',
     'src/chainparamsseeds.h',
     # other external copyrights:
-    'src/reverse_iterator.h',
     'src/test/fuzz/FuzzedDataProvider.h',
     'src/tinyformat.h',
     'src/bench/nanobench.h',

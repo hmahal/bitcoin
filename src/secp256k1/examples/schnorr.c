@@ -15,27 +15,23 @@
 #include <secp256k1_extrakeys.h>
 #include <secp256k1_schnorrsig.h>
 
-#include "random.h"
+#include "examples_util.h"
 
 int main(void) {
-    unsigned char msg[12] = "Hello World!";
+    unsigned char msg[] = {'H', 'e', 'l', 'l', 'o', ' ', 'W', 'o', 'r', 'l', 'd', '!'};
     unsigned char msg_hash[32];
-    unsigned char tag[17] = "my_fancy_protocol";
+    unsigned char tag[] = {'m', 'y', '_', 'f', 'a', 'n', 'c', 'y', '_', 'p', 'r', 'o', 't', 'o', 'c', 'o', 'l'};
     unsigned char seckey[32];
     unsigned char randomize[32];
     unsigned char auxiliary_rand[32];
     unsigned char serialized_pubkey[32];
     unsigned char signature[64];
-    int is_signature_valid;
+    int is_signature_valid, is_signature_valid2;
     int return_val;
     secp256k1_xonly_pubkey pubkey;
     secp256k1_keypair keypair;
-    /* The specification in secp256k1_extrakeys.h states that `secp256k1_keypair_create`
-     * needs a context object initialized for signing. And in secp256k1_schnorrsig.h
-     * they state that `secp256k1_schnorrsig_verify` needs a context initialized for
-     * verification, which is why we create a context for both signing and verification
-     * with the SECP256K1_CONTEXT_SIGN and SECP256K1_CONTEXT_VERIFY flags. */
-    secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+    /* Before we can call actual API functions, we need to create a "context". */
+    secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
     if (!fill_random(randomize, sizeof(randomize))) {
         printf("Failed to generate randomness\n");
         return 1;
@@ -139,14 +135,22 @@ int main(void) {
     /* This will clear everything from the context and free the memory */
     secp256k1_context_destroy(ctx);
 
+    /* Bonus example: if all we need is signature verification (and no key
+       generation or signing), we don't need to use a context created via
+       secp256k1_context_create(). We can simply use the static (i.e., global)
+       context secp256k1_context_static. See its description in
+       include/secp256k1.h for details. */
+    is_signature_valid2 = secp256k1_schnorrsig_verify(secp256k1_context_static,
+                                                      signature, msg_hash, 32, &pubkey);
+    assert(is_signature_valid2 == is_signature_valid);
+
     /* It's best practice to try to clear secrets from memory after using them.
      * This is done because some bugs can allow an attacker to leak memory, for
-     * example through "out of bounds" array access (see Heartbleed), Or the OS
+     * example through "out of bounds" array access (see Heartbleed), or the OS
      * swapping them to disk. Hence, we overwrite the secret key buffer with zeros.
      *
-     * TODO: Prevent these writes from being optimized out, as any good compiler
+     * Here we are preventing these writes from being optimized out, as any good compiler
      * will remove any writes that aren't used. */
-    memset(seckey, 0, sizeof(seckey));
-
+    secure_erase(seckey, sizeof(seckey));
     return 0;
 }

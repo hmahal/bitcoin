@@ -1,10 +1,12 @@
-// Copyright (c) 2011-2021 The Bitcoin Core developers
+// Copyright (c) 2011-2022 The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <util/strencodings.h>
 
 #include <boost/test/unit_test.hpp>
+
+#include <algorithm>
 #include <string>
 
 using namespace std::literals;
@@ -21,7 +23,7 @@ BOOST_AUTO_TEST_CASE(base64_testvectors)
         BOOST_CHECK_EQUAL(strEnc, vstrOut[i]);
         auto dec = DecodeBase64(strEnc);
         BOOST_REQUIRE(dec);
-        BOOST_CHECK_MESSAGE(MakeByteSpan(*dec) == MakeByteSpan(vstrIn[i]), vstrOut[i]);
+        BOOST_CHECK_MESSAGE(std::ranges::equal(*dec, vstrIn[i]), vstrOut[i]);
     }
 
     {
