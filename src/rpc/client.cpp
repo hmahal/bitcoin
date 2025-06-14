@@ -1,5 +1,5 @@
 // Copyright (c) 2010 Satoshi Nakamoto
-// Copyright (c) 2009-2022 The Bitcoin Core developers
+// Copyright (c) 2009-present The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -7,8 +7,8 @@
 #include <rpc/client.h>
 #include <tinyformat.h>
 
+#include <cstdint>
 #include <set>
-#include <stdint.h>
 #include <string>
 #include <string_view>
 
@@ -48,7 +48,6 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "sendtoaddress", 9, "fee_rate"},
     { "sendtoaddress", 10, "verbose"},
     { "settxfee", 0, "amount" },
-    { "sethdseed", 0, "newkeypool" },
     { "getreceivedbyaddress", 1, "minconf" },
     { "getreceivedbyaddress", 2, "include_immature_coinbase" },
     { "getreceivedbylabel", 1, "minconf" },
@@ -92,9 +91,10 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "scanblocks", 3, "stop_height" },
     { "scanblocks", 5, "options" },
     { "scanblocks", 5, "filter_false_positives" },
+    { "getdescriptoractivity", 0, "blockhashes" },
+    { "getdescriptoractivity", 1, "scanobjects" },
+    { "getdescriptoractivity", 2, "include_mempool" },
     { "scantxoutset", 1, "scanobjects" },
-    { "addmultisigaddress", 0, "nrequired" },
-    { "addmultisigaddress", 1, "keys" },
     { "createmultisig", 0, "nrequired" },
     { "createmultisig", 1, "keys" },
     { "listunspent", 0, "minconf" },
@@ -233,17 +233,10 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "simulaterawtransaction", 0, "rawtxs" },
     { "simulaterawtransaction", 1, "options" },
     { "simulaterawtransaction", 1, "include_watchonly"},
-    { "importprivkey", 2, "rescan" },
-    { "importaddress", 2, "rescan" },
-    { "importaddress", 3, "p2sh" },
-    { "importpubkey", 2, "rescan" },
     { "importmempool", 1, "options" },
     { "importmempool", 1, "apply_fee_delta_priority" },
     { "importmempool", 1, "use_current_time" },
     { "importmempool", 1, "apply_unbroadcast_set" },
-    { "importmulti", 0, "requests" },
-    { "importmulti", 1, "options" },
-    { "importmulti", 1, "rescan" },
     { "importdescriptors", 0, "requests" },
     { "listdescriptors", 0, "private" },
     { "verifychain", 0, "checklevel" },
@@ -254,6 +247,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "keypoolrefill", 0, "newsize" },
     { "getrawmempool", 0, "verbose" },
     { "getrawmempool", 1, "mempool_sequence" },
+    { "getorphantxs", 0, "verbosity" },
     { "estimatesmartfee", 0, "conf_target" },
     { "estimaterawfee", 0, "conf_target" },
     { "estimaterawfee", 1, "threshold" },

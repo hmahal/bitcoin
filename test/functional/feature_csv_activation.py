@@ -99,12 +99,11 @@ class BIP68_112_113Test(BitcoinTestFramework):
         self.noban_tx_relay = True
         self.extra_args = [[
             f'-testactivationheight=csv@{CSV_ACTIVATION_HEIGHT}',
-            '-par=1',  # Use only one script thread to get the exact reject reason for testing
         ]]
         self.supports_cli = False
 
     def create_self_transfer_from_utxo(self, input_tx):
-        utxo = self.miniwallet.get_utxo(txid=input_tx.rehash(), mark_as_spent=False)
+        utxo = self.miniwallet.get_utxo(txid=input_tx.txid_hex, mark_as_spent=False)
         tx = self.miniwallet.create_self_transfer(utxo_to_spend=utxo)['tx']
         return tx
 
@@ -113,7 +112,6 @@ class BIP68_112_113Test(BitcoinTestFramework):
         tx.version = txversion
         self.miniwallet.sign_tx(tx)
         tx.vin[0].scriptSig = CScript([-1, OP_CHECKSEQUENCEVERIFY, OP_DROP] + list(CScript(tx.vin[0].scriptSig)))
-        tx.rehash()
         return tx
 
     def create_bip112emptystack(self, input, txversion):
@@ -121,7 +119,6 @@ class BIP68_112_113Test(BitcoinTestFramework):
         tx.version = txversion
         self.miniwallet.sign_tx(tx)
         tx.vin[0].scriptSig = CScript([OP_CHECKSEQUENCEVERIFY] + list(CScript(tx.vin[0].scriptSig)))
-        tx.rehash()
         return tx
 
     def send_generic_input_tx(self, coinbases):
@@ -160,7 +157,6 @@ class BIP68_112_113Test(BitcoinTestFramework):
                 tx.vin[0].scriptSig = CScript([locktime, OP_CHECKSEQUENCEVERIFY, OP_DROP] + list(CScript(tx.vin[0].scriptSig)))
             else:
                 tx.vin[0].scriptSig = CScript([BASE_RELATIVE_LOCKTIME, OP_CHECKSEQUENCEVERIFY, OP_DROP] + list(CScript(tx.vin[0].scriptSig)))
-            tx.rehash()
             txs.append({'tx': tx, 'sdf': sdf, 'stf': stf})
         return txs
 

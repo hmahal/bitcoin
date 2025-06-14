@@ -8,6 +8,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <common/args.h>
+#include <consensus/merkle.h>
 #include <consensus/validation.h>
 #include <deploymentstatus.h>
 #include <external_signer.h>
@@ -45,6 +46,7 @@
 #include <policy/settings.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
+#include <rpc/blockchain.h>
 #include <rpc/protocol.h>
 #include <rpc/server.h>
 #include <support/allocators/secure.h>
@@ -60,7 +62,7 @@
 #include <validation.h>
 #include <validationinterface.h>
 
-#include <config/bitcoin-config.h> // IWYU pragma: keep
+#include <bitcoin-build-config.h> // IWYU pragma: keep
 
 #include <any>
 #include <memory>
@@ -80,6 +82,7 @@ using interfaces::Mining;
 using interfaces::Node;
 using interfaces::WalletLoader;
 using node::BlockAssembler;
+using node::BlockWaitOptions;
 using util::Join;
 
 namespace node {
@@ -115,7 +118,7 @@ public:
         m_context->ecc_context = std::make_unique<ECC_Context>();
         if (!AppInitSanityChecks(*m_context->kernel)) return false;
 
-        if (!AppInitLockDataDirectory()) return false;
+        if (!AppInitLockDirectories()) return false;
         if (!AppInitInterfaces(*m_context)) return false;
 
         return true;
@@ -134,13 +137,15 @@ public:
     }
     void startShutdown() override
     {
-        if (!(*Assert(Assert(m_context)->shutdown))()) {
+        NodeContext& ctx{*Assert(m_context)};
+        if (!(Assert(ctx.shutdown_request))()) {
             LogError("Failed to send shutdown signal\n");
         }
+
         // Stop RPC for clean shutdown if any of waitfor* commands is executed.
         if (args().GetBoolArg("-server", false)) {
             InterruptRPC();
-            StopRPC(m_context);
+            StopRPC();
         }
     }
     bool shutdownRequested() override { return ShutdownRequested(*Assert(m_context)); };
@@ -184,7 +189,7 @@ public:
         });
         args().WriteSettingsFile();
     }
-    void mapPort(bool use_upnp, bool use_pcp) override { StartMapPort(use_upnp, use_pcp); }
+    void mapPort(bool enable) override { StartMapPort(enable); }
     bool getProxy(Network net, Proxy& proxy_info) override { return GetProxy(net, proxy_info); }
     size_t getNodeCount(ConnectionDirection flags) override
     {
@@ -321,7 +326,8 @@ public:
     }
     double getVerificationProgress() override
     {
-        return GuessVerificationProgress(chainman().GetParams().TxData(), WITH_LOCK(::cs_main, return chainman().ActiveChain().Tip()));
+        LOCK(chainman().GetMutex());
+        return chainman().GuessVerificationProgress(chainman().ActiveTip());
     }
     bool isInitialBlockDownload() override
     {
@@ -355,9 +361,7 @@ public:
     std::optional<Coin> getUnspentOutput(const COutPoint& output) override
     {
         LOCK(::cs_main);
-        Coin coin;
-        if (chainman().ActiveChainstate().CoinsTip().GetCoin(output, coin)) return coin;
-        return {};
+        return chainman().ActiveChainstate().CoinsTip().GetCoin(output);
     }
     TransactionError broadcastTransaction(CTransactionRef tx, CAmount max_tx_fee, std::string& err_string) override
     {
@@ -405,9 +409,8 @@ public:
     }
     std::unique_ptr<Handler> handleNotifyBlockTip(NotifyBlockTipFn fn) override
     {
-        return MakeSignalHandler(::uiInterface.NotifyBlockTip_connect([fn](SynchronizationState sync_state, const CBlockIndex* block) {
-            fn(sync_state, BlockTip{block->nHeight, block->GetBlockTime(), block->GetBlockHash()},
-                GuessVerificationProgress(Params().TxData(), block));
+        return MakeSignalHandler(::uiInterface.NotifyBlockTip_connect([fn](SynchronizationState sync_state, const CBlockIndex& block, double verification_progress) {
+            fn(sync_state, BlockTip{block.nHeight, block.GetBlockTime(), block.GetBlockHash()}, verification_progress);
         }));
     }
     std::unique_ptr<Handler> handleNotifyHeaderTip(NotifyHeaderTipFn fn) override
@@ -441,7 +444,7 @@ bool FillBlock(const CBlockIndex* index, const FoundBlock& block, UniqueLock<Rec
     if (block.m_next_block) FillBlock(active[index->nHeight] == index ? active[index->nHeight + 1] : nullptr, *block.m_next_block, lock, active, blockman);
     if (block.m_data) {
         REVERSE_LOCK(lock);
-        if (!blockman.ReadBlockFromDisk(*block.m_data, *index)) block.m_data->SetNull();
+        if (!blockman.ReadBlock(*block.m_data, *index)) block.m_data->SetNull();
     }
     block.found = true;
     return true;
@@ -638,8 +641,8 @@ public:
     void findCoins(std::map<COutPoint, Coin>& coins) override { return FindCoins(m_node, coins); }
     double guessVerificationProgress(const uint256& block_hash) override
     {
-        LOCK(::cs_main);
-        return GuessVerificationProgress(chainman().GetParams().TxData(), chainman().m_blockman.LookupBlockIndex(block_hash));
+        LOCK(chainman().GetMutex());
+        return chainman().GuessVerificationProgress(chainman().m_blockman.LookupBlockIndex(block_hash));
     }
     bool hasBlocks(const uint256& block_hash, int min_height, std::optional<int> max_height) override
     {
@@ -769,6 +772,11 @@ public:
         LOCK(::cs_main);
         return chainman().m_blockman.m_have_pruned;
     }
+    std::optional<int> getPruneHeight() override
+    {
+        LOCK(chainman().GetMutex());
+        return GetPruneHeight(chainman().m_blockman, chainman().ActiveChain());
+    }
     bool isReadyToBroadcast() override { return !chainman().m_blockman.LoadingBlocks() && !isInitialBlockDownload(); }
     bool isInitialBlockDownload() override
     {
@@ -870,7 +878,11 @@ public:
 class BlockTemplateImpl : public BlockTemplate
 {
 public:
-    explicit BlockTemplateImpl(std::unique_ptr<CBlockTemplate> block_template) : m_block_template(std::move(block_template))
+    explicit BlockTemplateImpl(BlockAssembler::Options assemble_options,
+                               std::unique_ptr<CBlockTemplate> block_template,
+                               NodeContext& node) : m_assemble_options(std::move(assemble_options)),
+                                                    m_block_template(std::move(block_template)),
+                                                    m_node(node)
     {
         assert(m_block_template);
     }
@@ -910,7 +922,31 @@ public:
         return GetWitnessCommitmentIndex(m_block_template->block);
     }
 
+    std::vector<uint256> getCoinbaseMerklePath() override
+    {
+        return TransactionMerklePath(m_block_template->block, 0);
+    }
+
+    bool submitSolution(uint32_t version, uint32_t timestamp, uint32_t nonce, CTransactionRef coinbase) override
+    {
+        AddMerkleRootAndCoinbase(m_block_template->block, std::move(coinbase), version, timestamp, nonce);
+        return chainman().ProcessNewBlock(std::make_shared<const CBlock>(m_block_template->block), /*force_processing=*/true, /*min_pow_checked=*/true, /*new_block=*/nullptr);
+    }
+
+    std::unique_ptr<BlockTemplate> waitNext(BlockWaitOptions options) override
+    {
+        auto new_template = WaitAndCreateNewBlock(chainman(), notifications(), m_node.mempool.get(), m_block_template, options, m_assemble_options);
+        if (new_template) return std::make_unique<BlockTemplateImpl>(m_assemble_options, std::move(new_template), m_node);
+        return nullptr;
+    }
+
+    const BlockAssembler::Options m_assemble_options;
+
     const std::unique_ptr<CBlockTemplate> m_block_template;
+
+    ChainstateManager& chainman() { return *Assert(m_node.chainman); }
+    KernelNotifications& notifications() { return *Assert(m_node.notifications); }
+    NodeContext& m_node;
 };
 
 class MinerImpl : public Mining
@@ -930,61 +966,22 @@ public:
 
     std::optional<BlockRef> getTip() override
     {
-        LOCK(::cs_main);
-        CBlockIndex* tip{chainman().ActiveChain().Tip()};
-        if (!tip) return {};
-        return BlockRef{tip->GetBlockHash(), tip->nHeight};
+        return GetTip(chainman());
     }
 
-    BlockRef waitTipChanged(uint256 current_tip, MillisecondsDouble timeout) override
+    std::optional<BlockRef> waitTipChanged(uint256 current_tip, MillisecondsDouble timeout) override
     {
-        // Interrupt check interval
-        const MillisecondsDouble tick{1000};
-        auto now{std::chrono::steady_clock::now()};
-        auto deadline = now + timeout;
-        // std::chrono does not check against overflow
-        if (deadline < now) deadline = std::chrono::steady_clock::time_point::max();
-        {
-            WAIT_LOCK(notifications().m_tip_block_mutex, lock);
-            while ((notifications().m_tip_block == uint256() || notifications().m_tip_block == current_tip) && !chainman().m_interrupt) {
-                now = std::chrono::steady_clock::now();
-                if (now >= deadline) break;
-                notifications().m_tip_block_cv.wait_until(lock, std::min(deadline, now + tick));
-            }
-        }
-        // Must release m_tip_block_mutex before locking cs_main, to avoid deadlocks.
-        LOCK(::cs_main);
-        return BlockRef{chainman().ActiveChain().Tip()->GetBlockHash(), chainman().ActiveChain().Tip()->nHeight};
+        return WaitTipChanged(chainman(), notifications(), current_tip, timeout);
     }
 
-    bool processNewBlock(const std::shared_ptr<const CBlock>& block, bool* new_block) override
+    std::unique_ptr<BlockTemplate> createNewBlock(const BlockCreateOptions& options) override
     {
-        return chainman().ProcessNewBlock(block, /*force_processing=*/true, /*min_pow_checked=*/true, /*new_block=*/new_block);
-    }
+        // Ensure m_tip_block is set so consumers of BlockTemplate can rely on that.
+        if (!waitTipChanged(uint256::ZERO, MillisecondsDouble::max())) return {};
 
-    unsigned int getTransactionsUpdated() override
-    {
-        return context()->mempool->GetTransactionsUpdated();
-    }
-
-    bool testBlockValidity(const CBlock& block, bool check_merkle_root, BlockValidationState& state) override
-    {
-        LOCK(cs_main);
-        CBlockIndex* tip{chainman().ActiveChain().Tip()};
-        // Fail if the tip updated before the lock was taken
-        if (block.hashPrevBlock != tip->GetBlockHash()) {
-            state.Error("Block does not connect to current chain tip.");
-            return false;
-        }
-
-        return TestBlockValidity(state, chainman().GetParams(), chainman().ActiveChainstate(), block, tip, /*fCheckPOW=*/false, check_merkle_root);
-    }
-
-    std::unique_ptr<BlockTemplate> createNewBlock(const CScript& script_pub_key, const BlockCreateOptions& options) override
-    {
         BlockAssembler::Options assemble_options{options};
         ApplyArgsManOptions(*Assert(m_node.args), assemble_options);
-        return std::make_unique<BlockTemplateImpl>(BlockAssembler{chainman().ActiveChainstate(), context()->mempool.get(), assemble_options}.CreateNewBlock(script_pub_key));
+        return std::make_unique<BlockTemplateImpl>(assemble_options, BlockAssembler{chainman().ActiveChainstate(), context()->mempool.get(), assemble_options}.CreateNewBlock(), m_node);
     }
 
     NodeContext* context() override { return &m_node; }

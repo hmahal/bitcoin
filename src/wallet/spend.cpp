@@ -21,6 +21,7 @@
 #include <util/rbf.h>
 #include <util/trace.h>
 #include <util/translation.h>
+#include <util/transaction_identifier.h>
 #include <wallet/coincontrol.h>
 #include <wallet/fees.h>
 #include <wallet/receive.h>
@@ -34,6 +35,11 @@ using common::StringForFeeReason;
 using common::TransactionErrorString;
 using interfaces::FoundBlock;
 using node::TransactionError;
+
+TRACEPOINT_SEMAPHORE(coin_selection, selected_coins);
+TRACEPOINT_SEMAPHORE(coin_selection, normal_create_tx_internal);
+TRACEPOINT_SEMAPHORE(coin_selection, attempting_aps_create_tx);
+TRACEPOINT_SEMAPHORE(coin_selection, aps_create_tx_internal);
 
 namespace wallet {
 static constexpr size_t OUTPUT_GROUP_MAX_ENTRIES{100};
@@ -323,10 +329,10 @@ CoinsResult AvailableCoins(const CWallet& wallet,
     const bool can_grind_r = wallet.CanGrindR();
     std::vector<COutPoint> outpoints;
 
-    std::set<uint256> trusted_parents;
+    std::set<Txid> trusted_parents;
     for (const auto& entry : wallet.mapWallet)
     {
-        const uint256& txid = entry.first;
+        const Txid& txid = entry.first;
         const CWalletTx& wtx = entry.second;
 
         if (wallet.IsTxImmatureCoinBase(wtx) && !params.include_immature_coinbase)
@@ -386,7 +392,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
 
         for (unsigned int i = 0; i < wtx.tx->vout.size(); i++) {
             const CTxOut& output = wtx.tx->vout[i];
-            const COutPoint outpoint(Txid::FromUint256(txid), i);
+            const COutPoint outpoint(txid, i);
 
             if (output.nValue < params.min_amount || output.nValue > params.max_amount)
                 continue;
@@ -503,8 +509,6 @@ std::map<CTxDestination, std::vector<COutput>> ListCoins(const CWallet& wallet)
     std::map<CTxDestination, std::vector<COutput>> result;
 
     CCoinControl coin_control;
-    // Include watch-only for LegacyScriptPubKeyMan wallets without private keys
-    coin_control.fAllowWatchOnly = wallet.GetLegacyScriptPubKeyMan() && wallet.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS);
     CoinFilterParams coins_params;
     coins_params.only_spendable = false;
     coins_params.skip_locked = false;
@@ -1086,7 +1090,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     // Get size of spending the change output
     int change_spend_size = CalculateMaximumSignedInputSize(change_prototype_txout, &wallet, /*coin_control=*/nullptr);
     // If the wallet doesn't know how to sign change output, assume p2sh-p2wpkh
-    // as lower-bound to allow BnB to do it's thing
+    // as lower-bound to allow BnB to do its thing
     if (change_spend_size == -1) {
         coin_selection_params.change_spend_size = DUMMY_NESTED_P2WPKH_INPUT_SIZE;
     } else {
@@ -1133,7 +1137,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     // This can only happen if feerate is 0, and requested destinations are value of 0 (e.g. OP_RETURN)
     // and no pre-selected inputs. This will result in 0-input transaction, which is consensus-invalid anyways
     if (selection_target == 0 && !coin_control.HasSelected()) {
-        return util::Error{_("Transaction requires one destination of non-0 value, a non-0 feerate, or a pre-selected input")};
+        return util::Error{_("Transaction requires one destination of non-zero value, a non-zero feerate, or a pre-selected input")};
     }
 
     // Fetch manually selected coins
@@ -1159,7 +1163,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         return util::Error{err.empty() ?_("Insufficient funds") : err};
     }
     const SelectionResult& result = *select_coins_res;
-    TRACE5(coin_selection, selected_coins,
+    TRACEPOINT(coin_selection, selected_coins,
            wallet.GetName().c_str(),
            GetAlgorithmName(result.GetAlgo()).c_str(),
            result.GetTarget(),
@@ -1167,6 +1171,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
            result.GetSelectedValue());
 
     // vouts to the payees
+    txNew.vout.reserve(vecSend.size() + 1); // + 1 because of possible later insert
     for (const auto& recipient : vecSend)
     {
         txNew.vout.emplace_back(recipient.nAmount, GetScriptForDestination(recipient.dest));
@@ -1217,6 +1222,7 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
     // behavior."
     bool use_anti_fee_sniping = true;
     const uint32_t default_sequence{coin_control.m_signal_bip125_rbf.value_or(wallet.m_signal_rbf) ? MAX_BIP125_RBF_SEQUENCE : CTxIn::MAX_SEQUENCE_NONFINAL};
+    txNew.vin.reserve(selected_coins.size());
     for (const auto& coin : selected_coins) {
         std::optional<uint32_t> sequence = coin_control.GetSequence(coin->outpoint);
         if (sequence) {
@@ -1378,7 +1384,7 @@ util::Result<CreatedTransactionResult> CreateTransaction(
     LOCK(wallet.cs_wallet);
 
     auto res = CreateTransactionInternal(wallet, vecSend, change_pos, coin_control, sign);
-    TRACE4(coin_selection, normal_create_tx_internal,
+    TRACEPOINT(coin_selection, normal_create_tx_internal,
            wallet.GetName().c_str(),
            bool(res),
            res ? res->fee : 0,
@@ -1387,7 +1393,7 @@ util::Result<CreatedTransactionResult> CreateTransaction(
     const auto& txr_ungrouped = *res;
     // try with avoidpartialspends unless it's enabled already
     if (txr_ungrouped.fee > 0 /* 0 means non-functional fee rate estimation */ && wallet.m_max_aps_fee > -1 && !coin_control.m_avoid_partial_spends) {
-        TRACE1(coin_selection, attempting_aps_create_tx, wallet.GetName().c_str());
+        TRACEPOINT(coin_selection, attempting_aps_create_tx, wallet.GetName().c_str());
         CCoinControl tmp_cc = coin_control;
         tmp_cc.m_avoid_partial_spends = true;
 
@@ -1399,7 +1405,7 @@ util::Result<CreatedTransactionResult> CreateTransaction(
         auto txr_grouped = CreateTransactionInternal(wallet, vecSend, change_pos, tmp_cc, sign);
         // if fee of this alternative one is within the range of the max fee, we use this one
         const bool use_aps{txr_grouped.has_value() ? (txr_grouped->fee <= txr_ungrouped.fee + wallet.m_max_aps_fee) : false};
-        TRACE5(coin_selection, aps_create_tx_internal,
+        TRACEPOINT(coin_selection, aps_create_tx_internal,
                wallet.GetName().c_str(),
                use_aps,
                txr_grouped.has_value(),

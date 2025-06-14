@@ -1,4 +1,4 @@
-OSX_MIN_VERSION=11.0
+OSX_MIN_VERSION=13.0
 OSX_SDK_VERSION=14.0
 XCODE_VERSION=15.0
 XCODE_BUILD_ID=15A240d
@@ -19,6 +19,7 @@ clangxx_prog=$(shell $(SHELL) $(.SHELLFLAGS) "command -v clang++")
 darwin_AR=$(shell $(SHELL) $(.SHELLFLAGS) "command -v llvm-ar")
 darwin_DSYMUTIL=$(shell $(SHELL) $(.SHELLFLAGS) "command -v dsymutil")
 darwin_NM=$(shell $(SHELL) $(.SHELLFLAGS) "command -v llvm-nm")
+darwin_OBJCOPY=$(shell $(SHELL) $(.SHELLFLAGS) "command -v llvm-objcopy")
 darwin_OBJDUMP=$(shell $(SHELL) $(.SHELLFLAGS) "command -v llvm-objdump")
 darwin_RANLIB=$(shell $(SHELL) $(.SHELLFLAGS) "command -v llvm-ranlib")
 darwin_STRIP=$(shell $(SHELL) $(.SHELLFLAGS) "command -v llvm-strip")

@@ -10,15 +10,14 @@ set -ex
 
 export ASAN_OPTIONS="detect_leaks=1:detect_stack_use_after_return=1:check_initialization_order=1:strict_init_order=1"
 export LSAN_OPTIONS="suppressions=${BASE_ROOT_DIR}/test/sanitizer_suppressions/lsan"
-export TSAN_OPTIONS="suppressions=${BASE_ROOT_DIR}/test/sanitizer_suppressions/tsan:halt_on_error=1"
+export TSAN_OPTIONS="suppressions=${BASE_ROOT_DIR}/test/sanitizer_suppressions/tsan:halt_on_error=1:second_deadlock_stack=1"
 export UBSAN_OPTIONS="suppressions=${BASE_ROOT_DIR}/test/sanitizer_suppressions/ubsan:print_stacktrace=1:halt_on_error=1:report_error_type=1"
 
+echo "Number of available processing units: $(nproc)"
 if [ "$CI_OS_NAME" == "macos" ]; then
   top -l 1 -s 0 | awk ' /PhysMem/ {print}'
-  echo "Number of CPUs: $(sysctl -n hw.logicalcpu)"
 else
   free -m -h
-  echo "Number of CPUs (nproc): $(nproc)"
   echo "System info: $(uname --kernel-name --kernel-release)"
   lscpu
 fi
@@ -93,7 +92,7 @@ fi
 
 if [ -z "$NO_DEPENDS" ]; then
   if [[ $CI_IMAGE_NAME_TAG == *centos* ]]; then
-    SHELL_OPTS="CONFIG_SHELL=/bin/dash"
+    SHELL_OPTS="CONFIG_SHELL=/bin/ksh"  # Temporarily use ksh instead of dash, until https://bugzilla.redhat.com/show_bug.cgi?id=2335416 is fixed.
   else
     SHELL_OPTS="CONFIG_SHELL="
   fi
@@ -119,7 +118,7 @@ BASE_BUILD_DIR=${BASE_BUILD_DIR:-$BASE_SCRATCH_DIR/build-$HOST}
 mkdir -p "${BASE_BUILD_DIR}"
 cd "${BASE_BUILD_DIR}"
 
-BITCOIN_CONFIG_ALL="$BITCOIN_CONFIG_ALL -DENABLE_EXTERNAL_SIGNER=ON -DCMAKE_INSTALL_PREFIX=$BASE_OUTDIR"
+BITCOIN_CONFIG_ALL="$BITCOIN_CONFIG_ALL -DCMAKE_INSTALL_PREFIX=$BASE_OUTDIR"
 
 if [[ "${RUN_TIDY}" == "true" ]]; then
   BITCOIN_CONFIG_ALL="$BITCOIN_CONFIG_ALL -DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
@@ -133,10 +132,6 @@ bash -c "${PRINT_CCACHE_STATISTICS}"
 du -sh "${DEPENDS_DIR}"/*/
 du -sh "${PREVIOUS_RELEASES_DIR}"
 
-if [[ $HOST = *-mingw32 ]]; then
-  "${BASE_ROOT_DIR}/ci/test/wrap-wine.sh"
-fi
-
 if [ -n "$USE_VALGRIND" ]; then
   "${BASE_ROOT_DIR}/ci/test/wrap-valgrind.sh"
 fi
@@ -146,7 +141,7 @@ if [ "$RUN_CHECK_DEPS" = "true" ]; then
 fi
 
 if [ "$RUN_UNIT_TESTS" = "true" ]; then
-  DIR_UNIT_TEST_DATA="${DIR_UNIT_TEST_DATA}" LD_LIBRARY_PATH="${DEPENDS_DIR}/${HOST}/lib" CTEST_OUTPUT_ON_FAILURE=ON ctest "${MAKEJOBS}"
+  DIR_UNIT_TEST_DATA="${DIR_UNIT_TEST_DATA}" LD_LIBRARY_PATH="${DEPENDS_DIR}/${HOST}/lib" CTEST_OUTPUT_ON_FAILURE=ON ctest --stop-on-failure "${MAKEJOBS}" --timeout $(( TEST_RUNNER_TIMEOUT_FACTOR * 60 ))
 fi
 
 if [ "$RUN_UNIT_TESTS_SEQUENTIAL" = "true" ]; then
@@ -165,16 +160,18 @@ if [ "${RUN_TIDY}" = "true" ]; then
   cmake --build /tidy-build --target bitcoin-tidy-tests "$MAKEJOBS"
 
   set -eo pipefail
+  # Filter out:
+  # * qt qrc and moc generated files
+  jq 'map(select(.file | test("src/qt/.*_autogen/.*\\.cpp$") | not))' "${BASE_BUILD_DIR}/compile_commands.json" > tmp.json
+  mv tmp.json "${BASE_BUILD_DIR}/compile_commands.json"
+
   cd "${BASE_BUILD_DIR}/src/"
   if ! ( run-clang-tidy-"${TIDY_LLVM_V}" -quiet -load="/tidy-build/libbitcoin-tidy.so" "${MAKEJOBS}" | tee tmp.tidy-out.txt ); then
     grep -C5 "error: " tmp.tidy-out.txt
     echo "^^^ ⚠️ Failure generated from clang-tidy"
     false
   fi
-  # Filter out:
-  # * qt qrc and moc generated files
-  jq 'map(select(.file | test("src/qt/qrc_.*\\.cpp$|/moc_.*\\.cpp$") | not))' "${BASE_BUILD_DIR}/compile_commands.json" > tmp.json
-  mv tmp.json "${BASE_BUILD_DIR}/compile_commands.json"
+
   cd "${BASE_ROOT_DIR}"
   python3 "/include-what-you-use/iwyu_tool.py" \
            -p "${BASE_BUILD_DIR}" "${MAKEJOBS}" \

@@ -1,5 +1,5 @@
 // Copyright (c) 2009-2010 Satoshi Nakamoto
-// Copyright (c) 2009-2022 The Bitcoin Core developers
+// Copyright (c) 2009-present The Bitcoin Core developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
@@ -19,9 +19,9 @@
 #include <util/string.h>
 
 #ifdef WIN32
-#include <codecvt>    /* for codecvt_utf8_utf16 */
-#include <shellapi.h> /* for CommandLineToArgvW */
-#include <shlobj.h>   /* for CSIDL_APPDATA */
+#include <codecvt>
+#include <shellapi.h>
+#include <shlobj.h>
 #endif
 
 #include <algorithm>
@@ -85,7 +85,7 @@ KeyInfo InterpretKey(std::string key)
         result.section = key.substr(0, option_index);
         key.erase(0, option_index + 1);
     }
-    if (key.substr(0, 2) == "no") {
+    if (key.starts_with("no")) {
         key.erase(0, 2);
         result.negated = true;
     }
@@ -184,12 +184,12 @@ bool ArgsManager::ParseParameters(int argc, const char* const argv[], std::strin
     for (int i = 1; i < argc; i++) {
         std::string key(argv[i]);
 
-#ifdef MAC_OSX
+#ifdef __APPLE__
         // At the first time when a user gets the "App downloaded from the
         // internet" warning, and clicks the Open button, macOS passes
         // a unique process serial number (PSN) as -psn_... command-line
         // argument, which we filter out.
-        if (key.substr(0, 5) == "-psn_") continue;
+        if (key.starts_with("-psn_")) continue;
 #endif
 
         if (key == "-") break; //bitcoin-tx using stdin
@@ -688,8 +688,8 @@ bool HelpRequested(const ArgsManager& args)
 
 void SetupHelpOptions(ArgsManager& args)
 {
-    args.AddArg("-?", "Print this help message and exit", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
-    args.AddHiddenArgs({"-h", "-help"});
+    args.AddArg("-help", "Print this help message and exit (also -h or -?)", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
+    args.AddHiddenArgs({"-h", "-?"});
 }
 
 static const int screenWidth = 79;
@@ -709,6 +709,7 @@ std::string HelpMessageOpt(const std::string &option, const std::string &message
 
 const std::vector<std::string> TEST_OPTIONS_DOC{
     "addrman (use deterministic addrman)",
+    "bip94 (enforce BIP94 consensus rules)",
 };
 
 bool HasTestOption(const ArgsManager& args, const std::string& test_option)
@@ -741,7 +742,7 @@ fs::path GetDefaultDataDir()
         pathRet = fs::path("/");
     else
         pathRet = fs::path(pszHome);
-#ifdef MAC_OSX
+#ifdef __APPLE__
     // macOS
     return pathRet / "Library/Application Support/Bitcoin";
 #else
